@@ -7,12 +7,12 @@
 #include <time.h>
 #include <Arduino.h>
 #include <Wire.h>
-#include <RTC.h>
+#include <I2C_RTC.h>
 
 bool DS1307::begin()
 {
 	Wire.begin(); // join i2c bus
-	Wire.beginTransmission(0x68);
+	Wire.beginTransmission(DS1307_ADDR);
 	return (Wire.endTransmission() == 0 ? true : false);
 }
 
@@ -66,28 +66,38 @@ get & set HourMode
 void DS1307::setHourMode(uint8_t h_mode)
 {
 	uint8_t data;
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x02);  // Hour Register
-	Wire.endTransmission();
-	Wire.requestFrom(DS1307_ADDR, 1);
-	data = Wire.read();
-	bitWrite(data, 6, h_mode);
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x02);  // Hour Register
-	Wire.write(data);
-	Wire.endTransmission();
+	if(h_mode == CLOCK_H12 || h_mode == CLOCK_H24)
+	{
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x02);  // Hour Register
+		Wire.endTransmission();
+
+		Wire.requestFrom(DS1307_ADDR, 1);
+		data = Wire.read();
+		
+		bitWrite(data, 6, h_mode);
+		
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x02);  // Hour Register
+		Wire.write(data);
+		Wire.endTransmission();
+	}
 }
 
 uint8_t DS1307::getHourMode()
 {
 	bool h_mode;
 	uint8_t data;
+
 	Wire.beginTransmission(DS1307_ADDR);
 	Wire.write(0x02);
 	Wire.endTransmission();
+
 	Wire.requestFrom(DS1307_ADDR, 1);
 	data = Wire.read();
+
 	h_mode = bitRead(data, 6);
+
 	return (h_mode);
 }
 
@@ -97,17 +107,21 @@ uint8_t DS1307::getHourMode()
 void DS1307::setMeridiem(uint8_t meridiem)
 {
 	uint8_t data;
-	if (getHourMode() == CLOCK_H12) {
-		Wire.beginTransmission(DS1307_ADDR);
-		Wire.write(0x02);  // Hour Register
-		Wire.endTransmission();
-		Wire.requestFrom(DS1307_ADDR, 1);
-		data = Wire.read();
-		bitWrite(data, 5, meridiem);
-		Wire.beginTransmission(DS1307_ADDR);
-		Wire.write(0x02);  // Hour Register
-		Wire.write(data);
-		Wire.endTransmission();
+	if(meridiem == HOUR_AM || meridiem == HOUR_PM)
+	{
+		if (getHourMode() == CLOCK_H12) 
+		{
+			Wire.beginTransmission(DS1307_ADDR);
+			Wire.write(0x02);  // Hour Register
+			Wire.endTransmission();
+			Wire.requestFrom(DS1307_ADDR, 1);
+			data = Wire.read();
+			bitWrite(data, 5, meridiem);
+			Wire.beginTransmission(DS1307_ADDR);
+			Wire.write(0x02);  // Hour Register
+			Wire.write(data);
+			Wire.endTransmission();
+		}
 	}
 }
 
@@ -120,8 +134,10 @@ uint8_t DS1307::getMeridiem()
 		Wire.beginTransmission(DS1307_ADDR);
 		Wire.write(0x02);
 		Wire.endTransmission();
+
 		Wire.requestFrom(DS1307_ADDR, 1);
 		data = Wire.read();
+
 		flag = bitRead(data, 5);
 		return (flag);
 	}
@@ -134,30 +150,37 @@ get & set Second
 -----------------------------------------------------------*/
 uint8_t DS1307::getSeconds()
 {
-	uint8_t second;
+	uint8_t seconds;
 	Wire.beginTransmission(DS1307_ADDR);
 	Wire.write(0x00);
 	Wire.endTransmission();
+	
 	Wire.requestFrom(DS1307_ADDR, 1);
-	second = Wire.read();
-	bitClear(second, 7); // Clearing CH Bit if Set.
-	return (bcd2bin(second));
+	seconds = Wire.read();
+	bitClear(seconds, 7); // Clearing CH Bit if Set.
+	return (bcd2bin(seconds));
 }
 
-void DS1307::setSeconds(uint8_t second)
+void DS1307::setSeconds(uint8_t seconds)
 {
-	uint8_t ch_bit;
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x00);  // Second Register
-	Wire.endTransmission();
-	Wire.requestFrom(DS1307_ADDR, 1);
-	ch_bit = Wire.read();
-	ch_bit = ch_bit & 0x80;
-	second = ch_bit | second;
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x00);  // Second Register
-	Wire.write(bin2bcd(second));
-	Wire.endTransmission();
+	uint8_t data, ch_bit;
+	if (seconds >= 00 && seconds <= 59)
+	{
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x00);  // Second Register
+		Wire.endTransmission();
+		Wire.requestFrom(DS1307_ADDR, 1);
+		data = Wire.read();
+
+		ch_bit = bitRead(data, 7);
+		seconds = bin2bcd(seconds);
+		bitWrite(seconds,7,ch_bit);
+
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x00);  // Second Register
+		Wire.write(bin2bcd(seconds));
+		Wire.endTransmission();
+	}
 }
 
 /*-----------------------------------------------------------
@@ -174,12 +197,15 @@ uint8_t DS1307::getMinutes()
 	return (bcd2bin(minute));
 }
 
-void DS1307::setMinutes(uint8_t minute)
+void DS1307::setMinutes(uint8_t minutes)
 {
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x01);  // Minute Register
-	Wire.write(bin2bcd(minute));
-	Wire.endTransmission();
+	if(minutes >= 00 && minutes <= 59)
+	{	
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x01);  // Minute Register
+		Wire.write(bin2bcd(minutes));
+		Wire.endTransmission();
+	}
 }
 
 /*-----------------------------------------------------------
@@ -188,8 +214,8 @@ getHours
 uint8_t DS1307::getHours()
 {
 	uint8_t hour;
-	bool h_mode;
-	h_mode = getHourMode();
+	bool h_mode = getHourMode();
+	
 	Wire.beginTransmission(DS1307_ADDR);
 	Wire.write(0x02);  // Hour Register
 	Wire.endTransmission();
@@ -205,37 +231,45 @@ uint8_t DS1307::getHours()
 		bitClear(hour, 6);
 		return (bcd2bin(hour));
 	}
+	else
+	{
+		return 0;
+	}
 }
 
-void  DS1307::setHours(uint8_t hour)
+void  DS1307::setHours(uint8_t hours)
 {
-	bool h_mode, meridiem;
-	h_mode = getHourMode();
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x02);  // Hour Register
-	if (h_mode == CLOCK_H24)
+	bool h_mode;
+	if (hours >= 00 && hours <= 23)
 	{
-		Wire.write(bin2bcd(hour));
-	}
-	else if (h_mode == CLOCK_H12)
-	{
-		if (hour > 12)
+		h_mode = getHourMode();
+
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x02);  // Hour Register
+		if (h_mode == CLOCK_H24)
 		{
-			hour = hour % 12;
-			hour = bin2bcd(hour);
-			bitSet(hour, 6);
-			bitSet(hour, 5);
-			Wire.write(hour);
+			Wire.write(bin2bcd(hours));
 		}
-		else
+		else if (h_mode == CLOCK_H12)
 		{
-			hour = bin2bcd(hour);
-			bitSet(hour, 6);
-			bitClear(hour, 5);
-			Wire.write(hour);
+			if (hours > 12)
+			{
+				hours = hours % 12;
+				hours = bin2bcd(hours);
+				bitSet(hours, 6);
+				bitSet(hours, 5);
+				Wire.write(hours);
+			}
+			else
+			{
+				hours = bin2bcd(hours);
+				bitSet(hours, 6);
+				bitClear(hours, 5);
+				Wire.write(hours);
+			}
 		}
+		Wire.endTransmission();
 	}
-	Wire.endTransmission();
 }
 
 /*-----------------------------------------------------------
@@ -254,11 +288,35 @@ uint8_t DS1307::getWeek()
 
 void DS1307::setWeek(uint8_t week)
 {
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x03);  // Minute Register
-	Wire.write(week);
-	Wire.endTransmission();
+	if (week >= 1 && week <= 7)
+	{
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x03);  // Week Register
+		Wire.write(week);
+		Wire.endTransmission();
+	}
 }
+
+void DS1307::updateWeek()
+{
+	uint16_t y;
+	uint8_t m, d, weekday;
+	
+	y=getYear();
+	m=getMonth();
+	d=getDay();
+	
+	weekday  = (d += m < 3 ? y-- : y - 2, 23*m/9 + d + 4 + y/4- y/100 + y/400)%7;
+	
+	if (weekday >= 1 && weekday <= 7)
+	{
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x03);  // Week Register
+		Wire.write(weekday);
+		Wire.endTransmission();
+	}
+}
+
 
 /*-----------------------------------------------------------
 getDay
@@ -276,10 +334,13 @@ uint8_t DS1307::getDay()
 
 void DS1307::setDay(uint8_t day)
 {
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x04);  // Day Register
-	Wire.write(bin2bcd(day));
-	Wire.endTransmission();
+	if (day >= 1 && day <= 31)
+	{
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x04);  // Day Register
+		Wire.write(bin2bcd(day));
+		Wire.endTransmission();
+	}
 }
 
 /*-----------------------------------------------------------
@@ -288,11 +349,14 @@ getMonth()
 uint8_t DS1307::getMonth()
 {
 	uint8_t month;
+
 	Wire.beginTransmission(DS1307_ADDR);
 	Wire.write(0x05);  // Month Register
 	Wire.endTransmission();
+
 	Wire.requestFrom(DS1307_ADDR, 1);
 	month = Wire.read();
+
 	return (bcd2bin(month));
 }
 /*-----------------------------------------------------------
@@ -301,10 +365,13 @@ setMonth()
 
 void DS1307::setMonth(uint8_t month)
 {
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x05);  // Month Register
-	Wire.write(bin2bcd(month));
-	Wire.endTransmission();
+	if (month >= 1 && month <= 12)
+	{
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x05);  // Month Register
+		Wire.write(bin2bcd(month));
+		Wire.endTransmission();
+	}
 }
 
 /*-----------------------------------------------------------
@@ -322,49 +389,59 @@ uint16_t DS1307::getYear()
 }
 
 void DS1307::setYear(uint16_t year)
-{
-	year = year % 100; //Converting to 2 Digit
-	Wire.beginTransmission(DS1307_ADDR);	/* Writing 2 Digit year to Year Register(0x06) */
-	Wire.write(0x06);  // Year Register to write year
-	Wire.write(bin2bcd(year));
-	Wire.endTransmission();
+{	
+	if((year >= 00 && year <= 99) || (year >= 2000 && year <= 2099))
+	{
+
+		year = year % 100; //Converting to 2 Digit
+
+		Wire.beginTransmission(DS1307_ADDR);	/* Writing 2 Digit year to Year Register(0x06) */
+		Wire.write(0x06);  // Year Register to write year
+		Wire.write(bin2bcd(year));
+		Wire.endTransmission();
+	}
 }
 
 /*-----------------------------------------------------------
 setTime
+
+TODO : Use all the data validation
 -----------------------------------------------------------*/
 
-void DS1307::setTime(uint8_t hour, uint8_t minute, uint8_t second)
+void DS1307::setTime(uint8_t hours, uint8_t minutes, uint8_t seconds)
 {
-	bool h_mode, meridiem;
-	h_mode = getHourMode();
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(0x00);
-	Wire.write(bin2bcd(second));
-	Wire.write(bin2bcd(minute));
-	if (h_mode == CLOCK_H24)
+	bool h_mode;
+	if (hours >= 00 && hours <= 23 && minutes >= 00 && minutes <= 59 && seconds >= 00 && seconds <= 59)
 	{
-		Wire.write(bin2bcd(hour));
-	}
-	else if (h_mode == CLOCK_H12)
-	{
-		if (hour > 12)
+		h_mode = getHourMode();
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(0x00);
+		Wire.write(bin2bcd(seconds));
+		Wire.write(bin2bcd(minutes));
+		if (h_mode == CLOCK_H24)
 		{
-			hour = hour % 12;
-			hour = bin2bcd(hour);
-			bitSet(hour, 6);
-			bitSet(hour, 5);
-			Wire.write(hour);
+			Wire.write(bin2bcd(hours));
 		}
-		else
+		else if (h_mode == CLOCK_H12)
 		{
-			hour = bin2bcd(hour);
-			bitSet(hour, 6);
-			bitClear(hour, 5);
-			Wire.write(hour);
+			if (hours > 12)
+			{
+				hours = hours % 12;
+				hours = bin2bcd(hours);
+				bitSet(hours, 6);
+				bitSet(hours, 5);
+				Wire.write(hours);
+			}
+			else
+			{
+				hours = bin2bcd(hours);
+				bitSet(hours, 6);
+				bitClear(hours, 5);
+				Wire.write(hours);
+			}
 		}
+		Wire.endTransmission();
 	}
-	Wire.endTransmission();
 }
 
 /*-----------------------------------------------------------
@@ -372,7 +449,9 @@ setDate
 -----------------------------------------------------------*/
 void DS1307::setDate(uint8_t day, uint8_t month, uint16_t year)
 {
-	year = year % 100; //Converting to 2 Digit
+	if(day >= 1 && day <= 31 && month >= 1 && month <= 12 && ((year >= 00 && year <= 99) || (year >= 2000 && year <= 2099)))
+
+	year = year % 100; //Convert year to 2 Digit
 	Wire.beginTransmission(DS1307_ADDR);
 	Wire.write(0x04);
 	Wire.write(bin2bcd(day));
@@ -414,17 +493,65 @@ void DS1307::setDateTime(char* date, char* time)
 	setSeconds(second);
 }
 
+void DS1307::setDateTime(String timestamp)
+{
+	uint8_t day, month, hour, minute, second, week;
+	uint16_t year;
+	String month_str, week_str;
+	
+	week_str = timestamp.substring(0,3);
+	month_str = timestamp.substring(4,7);
+	day = timestamp.substring(8,11).toInt();
+	hour = timestamp.substring(11,13).toInt();
+	minute = timestamp.substring(14,16).toInt();
+	second = timestamp.substring(17,19).toInt();
+	year = timestamp.substring(20,24).toInt();
+
+	switch (week_str[0]) {
+	case 'S': week = week_str[1] == 'u' ? 1 : 7; break;
+	case 'M': week = 2; break;
+	case 'T': week = week_str[1] == 'u' ? 3 : 5; break;
+	case 'W': week = 4; break;
+	case 'F': week = 6; break;
+	}
+
+	switch (month_str[0]) {
+	case 'J': month = (month_str[1] == 'a') ? 1 : ((month_str[2] == 'n') ? 6 : 7); break;
+	case 'F': month = 2; break;
+	case 'A': month = month_str[2] == 'r' ? 4 : 8; break;
+	case 'M': month = month_str[2] == 'r' ? 3 : 5; break;
+	case 'S': month = 9; break;
+	case 'O': month = 10; break;
+	case 'N': month = 11; break;
+	case 'D': month = 12; break;
+	}
+
+	setWeek(week);
+	
+	setDay(day);
+	setMonth(month);
+	setYear(year);
+
+	setHours(hour);
+	setMinutes(minute);
+	setSeconds(second);
+}
+
 /*-----------------------------------------------------------
 setEpoch()
 -----------------------------------------------------------*/
 
-void DS1307::setEpoch(time_t epoch)
+//void DS1307::setEpoch(time_t epoch, bool is_unix_epoch=true)
+void DS1307::setEpoch(time_t epoch, bool is_unix_epoch)
 {
-	time_t rawtime;
 	struct tm epoch_tm, * ptr_epoch_tm;
 	uint16_t year;
-	rawtime = epoch;
-	ptr_epoch_tm = gmtime(&rawtime);
+	// adjust UNIX epoch to ARDUINO epoch, otherwise `tm` struct
+	// is one year and one (leap) day off.
+	if(is_unix_epoch)
+		epoch = epoch - UNIX_OFFSET;
+
+	ptr_epoch_tm = gmtime(&epoch);
 	epoch_tm = *ptr_epoch_tm;
 	setSeconds(epoch_tm.tm_sec); //0x00 - Seconds
 	setMinutes(epoch_tm.tm_min);
@@ -439,7 +566,8 @@ void DS1307::setEpoch(time_t epoch)
 /*-----------------------------------------------------------
 getEpoch()
 -----------------------------------------------------------*/
-time_t DS1307::getEpoch()
+//time_t DS1307::getEpoch(bool as_unix_epoch=true)
+time_t DS1307::getEpoch(bool as_unix_epoch)
 {
 	time_t epoch;
 	struct tm epoch_tm;
@@ -451,62 +579,9 @@ time_t DS1307::getEpoch()
 	epoch_tm.tm_mon = getMonth() - 1;
 	epoch_tm.tm_year = getYear() - 1900;
 	epoch = mktime(&epoch_tm);
+	if(as_unix_epoch)
+		epoch += UNIX_OFFSET;
 	return (epoch);
-}
-
-/* NVRAM Functions */
-
-bool NVRAM::begin()
-{
-	Wire.begin(); // join i2c bus
-	Wire.beginTransmission(0x68);
-	return (Wire.endTransmission() == 0 ? true : false);
-}
-
-
-uint8_t NVRAM::read(uint8_t address)
-{
-	uint8_t data = 0x00;
-	address = (address % length) + 0x08;
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(address);
-	Wire.endTransmission();
-	Wire.requestFrom(DS1307_ADDR, 1);
-	data = Wire.read();
-	return (data);
-}
-void NVRAM::write(uint8_t address, uint8_t data)
-{
-	address = (address % length) + 0x08;
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(address);
-	Wire.write(data);
-	Wire.endTransmission();
-}
-
-void NVRAM::read(uint8_t address, uint8_t* buf, uint8_t size)
-{
-	int addrByte = 0x08 + address;
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(addrByte);
-	Wire.endTransmission();
-	Wire.requestFrom(DS1307_ADDR, 9);
-	for (uint8_t pos = 0; pos < size; ++pos)
-	{
-		buf[pos] = Wire.read();
-	}
-}
-
-void NVRAM::write(uint8_t address, uint8_t* buf, uint8_t size)
-{
-	int addrByte = 0x08 + address;
-	Wire.beginTransmission(DS1307_ADDR);
-	Wire.write(addrByte);
-	for (uint8_t pos = 0; pos < size; ++pos)
-	{
-		Wire.write(buf[pos]);
-	}
-	Wire.endTransmission();
 }
 
 /* SQW/OUT pin functions */
@@ -517,22 +592,22 @@ void DS1307::setOutPin(uint8_t mode)
 	Wire.write(0x07);
 	switch (mode) {
 	case HIGH:
-		Wire.write(B10000000);
+		Wire.write(0b10000000);
 		break;
 	case LOW:
-		Wire.write(B00000000);
+		Wire.write(0b00000000);
 		break;
 	case SQW001Hz:
-		Wire.write(B00010000);
+		Wire.write(0b00010000);
 		break;
 	case SQW04kHz:
-		Wire.write(B00010001);
+		Wire.write(0b0010001);
 		break;
 	case SQW08kHz:
-		Wire.write(B00010010);
+		Wire.write(0b0010010);
 		break;
 	case SQW32kHz:
-		Wire.write(B00010011);
+		Wire.write(0b0010011);
 		break;
 	}
 	Wire.endTransmission();
@@ -561,6 +636,108 @@ bool DS1307::isSqweEnabled()
 	data = bitRead(data, 4);
 	return (data);
 }
+
+/* NVRAM Functions */
+
+bool NVRAM::begin()
+{
+	Wire.begin(); // join i2c bus
+	Wire.beginTransmission(0x68);
+	return (Wire.endTransmission() == 0 ? true : false);
+}
+
+
+uint8_t NVRAM::read(uint8_t address)
+{
+	uint8_t data = 0x00;
+	if(address >= 1 or address <=56 )
+	{
+		address = (address % length()) + 0x08;
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(address);
+		Wire.endTransmission();
+		Wire.requestFrom(DS1307_ADDR, 1);
+		data = Wire.read();
+	}
+	return (data);
+}
+void NVRAM::write(uint8_t address, uint8_t data)
+{
+	if(address >= 1 or address <=56 )
+	{
+		address = address + 0x08;
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(address);
+		Wire.write(data);
+		Wire.endTransmission();
+	}
+}
+
+/*Operator [] Read function*/
+uint8_t NVRAM::operator[](uint8_t address) const
+{
+
+	uint8_t data = 0x00;
+	if(address >= 1 or address <=56 )
+	{
+		//Serial.print("address = ");
+		//Serial.println(address);
+		address = (address % _length) + 0x08;
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(address);
+		Wire.endTransmission();
+		Wire.requestFrom(DS1307_ADDR, 1);
+		data = Wire.read();
+	}
+	return (data);
+}
+
+/*Operator [] Write function
+uint8_t& NVRAM::operator[](uint8_t address)
+{
+	//uint8_t data;
+	if(address >= 1 or address <=56 )
+	{
+		address = address + 0x08;
+		Wire.beginTransmission(DS1307_ADDR);
+		Wire.write(address);
+		Wire.write(data);
+		Wire.endTransmission();
+	}
+}
+
+*/
+
+void NVRAM::read(uint8_t address, uint8_t* buf, uint8_t size)
+{
+	int addrByte = 0x08 + address;
+	Wire.beginTransmission(DS1307_ADDR);
+	Wire.write(addrByte);
+	Wire.endTransmission();
+	Wire.requestFrom(DS1307_ADDR, 9);
+	for (uint8_t pos = 0; pos < size; ++pos)
+	{
+		buf[pos] = Wire.read();
+	}
+}
+
+void NVRAM::write(uint8_t address, uint8_t* buf, uint8_t size)
+{
+	int addrByte = 0x08 + address;
+	Wire.beginTransmission(DS1307_ADDR);
+	Wire.write(addrByte);
+	for (uint8_t pos = 0; pos < size; ++pos)
+	{
+		Wire.write(buf[pos]);
+	}
+	Wire.endTransmission();
+}
+
+uint8_t NVRAM::length()
+{
+	return(_length);
+}
+
 
 /* Helpers */
 

@@ -1,12 +1,20 @@
 #include <Wire.h>
-#include <RTC.h>
+#include <I2C_RTC.h>
 
 static DS1307 RTC;
 
 void setup()
 {
   Serial.begin(9600);
-  RTC.begin();
+    while (!Serial) {
+        ; // wait for serial port to connect. Needed for native USB port only
+    }
+
+    if(RTC.begin() == false)
+    {
+        Serial.println("RTC Not Connected!");
+        while(true);
+    }
 
   Serial.println();
   Serial.println("*** RTC 1307 ***");
@@ -16,6 +24,7 @@ void setup()
   else
     Serial.println("No. Time may be Inaccurate");
   Serial.print("Hour Mode : ");
+  
   if (RTC.getHourMode() == CLOCK_H24)
     Serial.println("24 Hours");
   else
@@ -31,7 +40,6 @@ void setup()
     Serial.println("Yes");
   else
     Serial.println("No");
-
 
 }
 
