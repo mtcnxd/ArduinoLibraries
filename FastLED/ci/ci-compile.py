@@ -17,6 +17,7 @@ from ci.locked_print import locked_print
 HERE = Path(__file__).parent.resolve()
 
 LIBS = ["src", "ci"]
+BUILD_FLAGS = ["-Wl,-Map,firmware.map", "-fopt-info-all=optimization_report.txt"]
 
 # Default boards to compile for. You can use boards not defined here but
 # if the board isn't part of the officially supported platformio boards then
@@ -44,6 +45,8 @@ DEFAULT_BOARDS_NAMES = [
     "esp32dev_i2s",
     "esp32rmt_51",
     "esp32dev_idf44",
+    "bluepill",
+    "esp32rmt_51",
 ]
 
 OTHER_BOARDS_NAMES = [
@@ -53,6 +56,7 @@ OTHER_BOARDS_NAMES = [
 
 # Examples to compile.
 DEFAULT_EXAMPLES = [
+    "Apa102",
     "Apa102HD",
     "Apa102HDOverride",
     "Blink",
@@ -75,6 +79,8 @@ DEFAULT_EXAMPLES = [
     "RGBWEmulated",
     "TwinkleFox",
     "XYMatrix",
+    "Video/Stream",
+    "SdCard",
 ]
 
 
@@ -131,7 +137,9 @@ def parse_args():
         action="store_true",
         help="Print the list of supported boards and exit",
     )
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+    if unknown:
+        warnings.warn(f"Unknown arguments: {unknown}")
     # if --interactive and --no-interative are both passed, --no-interactive takes precedence.
     if args.interactive and args.no_interactive:
         warnings.warn(
@@ -223,6 +231,7 @@ def create_concurrent_run_args(args: argparse.Namespace) -> ConcurrentRunArgs:
         extra_scripts=extra_scripts,
         cwd=str(HERE.parent),
         board_dir=(HERE / "boards").absolute().as_posix(),
+        build_flags=BUILD_FLAGS,
         verbose=verbose,
     )
     return out

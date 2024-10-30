@@ -35,6 +35,21 @@ FASTLED_FORCE_INLINE CRGB& CRGB::operator-= (const CRGB& rhs )
     return *this;
 }
 
+/// Add a constant of '1' from each channel, saturating at 0xFF
+FASTLED_FORCE_INLINE CRGB& CRGB::operator++ ()
+{
+    addToRGB(1);
+    return *this;
+}
+
+/// @copydoc operator++
+FASTLED_FORCE_INLINE CRGB CRGB::operator++ (int )
+{
+    CRGB retval(*this);
+    ++(*this);
+    return retval;
+}
+
 FASTLED_FORCE_INLINE CRGB& CRGB::subtractFromRGB(uint8_t d)
 {
     r = qsub8( r, d);
@@ -69,11 +84,36 @@ FASTLED_FORCE_INLINE CRGB& CRGB::fadeLightBy (uint8_t fadefactor )
     return *this;
 }
 
+/// Subtract a constant of '1' from each channel, saturating at 0x00
+FASTLED_FORCE_INLINE CRGB& CRGB::operator-- ()
+{
+    subtractFromRGB(1);
+    return *this;
+}
+
+/// @copydoc operator--
+FASTLED_FORCE_INLINE CRGB CRGB::operator-- (int )
+{
+    CRGB retval(*this);
+    --(*this);
+    return retval;
+}
+
 FASTLED_FORCE_INLINE CRGB& CRGB::nscale8 (uint8_t scaledown )
 {
     nscale8x3( r, g, b, scaledown);
     return *this;
 }
+
+constexpr CRGB CRGB::nscale8_constexpr(const CRGB scaledown) const
+{
+    return CRGB(
+        scale8_constexpr(r, scaledown.r),
+        scale8_constexpr(g, scaledown.g),
+        scale8_constexpr(b, scaledown.b)
+    );
+}
+
 
 FASTLED_FORCE_INLINE CRGB& CRGB::nscale8 (const CRGB & scaledown )
 {

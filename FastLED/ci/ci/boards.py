@@ -121,6 +121,13 @@ XIAOBLESENSE_ADAFRUIT_NRF52 = Board(
     platform_needs_install=True,  # Install platform package to get the boards
 )
 
+NRF52840 = Board(
+    board_name="nrf52840_dk",
+    real_board_name="xiaoble_adafruit",
+    platform="https://github.com/maxgerhardt/platform-nordicnrf52",
+    platform_needs_install=True,
+)
+
 RPI_PICO = Board(
     board_name="rpipico",
     platform="https://github.com/maxgerhardt/platform-raspberrypi.git",
@@ -154,6 +161,12 @@ MAPLE_MINI = Board(
     platform="ststm32",
 )
 
+# ATtiny1604
+ATTINY1616 = Board(
+    board_name="ATtiny1616",
+    platform="atmelmegaavr",
+)
+
 UNO_R4_WIFI = Board(
     board_name="uno_r4_wifi",
     platform="renesas-ra",
@@ -177,10 +190,10 @@ ESP32S3_RMT51 = Board(
     platform_needs_install=True,
     platform=ESP32_IDF_5_1_PIOARDUINO,
     defines=[
-        "FASTLED_ESP32_COMPONENT_LED_STRIP_BUILT_IN=1",
-        "FASTLED_ESP32_COMPONENT_LED_STRIP_BUILT_IN_COMPILE_PROBLEMATIC_CODE=1",
+        "FASTLED_RMT5=1",
     ],
 )
+
 
 ALL: list[Board] = [
     ESP32DEV,
@@ -201,6 +214,7 @@ ALL: list[Board] = [
     ESP32S3_RMT51,
     BLUEPILL,
     MAPLE_MINI,
+    NRF52840,
 ]
 
 

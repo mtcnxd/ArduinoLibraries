@@ -14,13 +14,13 @@
 /// * 1 digit for the major version
 /// * 3 digits for the minor version
 /// * 3 digits for the patch version
-#define FASTLED_VERSION 3007008
+#define FASTLED_VERSION 3009000
 #ifndef FASTLED_INTERNAL
 #  ifdef  FASTLED_SHOW_VERSION
 #    ifdef FASTLED_HAS_PRAGMA_MESSAGE
-#      pragma message "FastLED version 3.007.008"
+#      pragma message "FastLED version 3.009.000"
 #    else
-#      warning FastLED version 3.007.007  (Not really a warning, just telling you here.)
+#      warning FastLED version 3.009.000  (Not really a warning, just telling you here.)
 #    endif
 #  endif
 #endif
@@ -80,6 +80,7 @@
 
 #include "fastspi.h"
 #include "chipsets.h"
+#include "engine_events.h"
 
 FASTLED_NAMESPACE_BEGIN
 
@@ -358,6 +359,10 @@ class CFastLED {
 public:
 	CFastLED();
 
+	// Useful when you want to know when an event like onFrameBegin or onFrameEnd is happening.
+	// This is disabled on AVR to save space.
+	void addListener(EngineEvents::Listener *listener) { EngineEvents::addListener(listener); }
+	void removeListener(EngineEvents::Listener *listener) { EngineEvents::removeListener(listener); }
 
 	/// Add a CLEDController instance to the world.  Exposed to the public to allow people to implement their own
 	/// CLEDController objects or instances.  There are two ways to call this method (as well as the other addLeds()
