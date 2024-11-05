@@ -13,21 +13,28 @@ void loop() {
 
 #include <FastLED.h>
 #include "Arduino.h"
-#include "fx/storage/sd.hpp"
+#include "file_system.h"
 
-SdCardSpiPtr sd = SdCardSpiPtr::New(5);
+const int CHIP_SELECT_PIN = 5;
 
-#define INVALID_FILENAME "fhjdiskljdskj.txt"
+Fs fs(CHIP_SELECT_PIN);
+
 
 void setup() {
     Serial.begin(115200);
-    sd->begin(5);
+    if (!fs.begin()) {
+        Serial.println("Failed to initialize file system.");
+    }
     delay(2000);  // If something ever goes wrong this delay will allow upload.
 }
 
 void loop() {
-    FileHandlePtr file = sd->openRead(INVALID_FILENAME);
-    sd->close(file);
+    FileHandleRef fh = fs.openRead("data/video.dat");
+    if (!fh) {
+      Serial.println("Failed to open SD card because sd is null");
+    } else {
+      fs.close(fh);
+    }
     delay(1000);    
 }
 

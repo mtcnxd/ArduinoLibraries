@@ -52,7 +52,7 @@ console.error = error;
 
 function isDenseGrid(frameData) {
     const screenMap = frameData.screenMap;
-    
+
     // Check if all pixel densities are undefined
     let allPixelDensitiesUndefined = true;
     for (const stripId in screenMap.strips) {
@@ -668,7 +668,7 @@ class GraphicsManagerThreeJS {
                 });
             }
         });
-        return {isDenseScreenMap}
+        return { isDenseScreenMap }
     }
 
     updateCanvas(frameData) {
@@ -752,12 +752,12 @@ class GraphicsManagerThreeJS {
             // Convert to normalized coordinates
             const normalizedX = (x / width) * this.SCREEN_WIDTH - this.SCREEN_WIDTH / 2;
             const normalizedY = (y / height) * this.SCREEN_HEIGHT - this.SCREEN_HEIGHT / 2;
-            
+
             // Calculate z position based on distance from center for subtle depth
             const distFromCenter = Math.sqrt(Math.pow(normalizedX, 2) + Math.pow(normalizedY, 2));
-            const maxDist = Math.sqrt(Math.pow(this.SCREEN_WIDTH/2, 2) + Math.pow(this.SCREEN_HEIGHT/2, 2));
+            const maxDist = Math.sqrt(Math.pow(this.SCREEN_WIDTH / 2, 2) + Math.pow(this.SCREEN_HEIGHT / 2, 2));
             const z = (distFromCenter / maxDist) * 100;  // Max depth of 100 units
-            
+
             led.position.set(normalizedX, normalizedY, z);
             led.material.color.setRGB(ledData.r, ledData.g, ledData.b);
             ledIndex++;
@@ -1160,9 +1160,78 @@ class UiManager {
     };
 
     // Function to call the setup and loop functions
-    function runFastLED(extern_setup, extern_loop, frame_rate, moduleInstance) {
+    function runFastLED(extern_setup, extern_loop, frame_rate, moduleInstance, filesJson) {
         console.log("Calling setup function...");
+
+        const trimmedFilesJson = filesJson.map(file => {
+            return {
+                path: file.path,
+                size: file.size,
+            };
+        });
+        const options = {
+            files: trimmedFilesJson,
+            frameRate: frame_rate,
+        };
+        const jsonStr = JSON.stringify(options);
+        moduleInstance._fastled_declare_files(jsonStr);
         extern_setup();
+
+        const fetchAllFiles = (filesJson, onComplete) => {
+            let filesRemaining = filesJson.length;
+
+            const processFile = (file) => {
+                fetch(file.path)
+                    .then(response => response.body.getReader())
+                    .then(async (reader) => {
+                        console.log(`File fetched: ${file.path}, size: ${file.size}`);
+                        
+                        // Allocate name buffer once
+                        const n = moduleInstance.lengthBytesUTF8(file.path) + 1;
+                        const ptrName = moduleInstance._malloc(n);
+             
+                        moduleInstance.stringToUTF8(file.path, ptrName, n);
+
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+
+                            // Allocate and copy chunk data
+                            const ptr = moduleInstance._malloc(value.length);
+                            moduleInstance.HEAPU8.set(value, ptr);
+                            
+                            // Stream this chunk
+                            moduleInstance.ccall('jsAppendFile', 'number', 
+                                ['number', 'number', 'number'], 
+                                [ptrName, ptr, value.length]
+                            );
+
+                            moduleInstance._free(ptr);
+                        }
+
+                        moduleInstance._free(ptrName);
+
+                        filesRemaining--;
+                        if (filesRemaining === 0) {
+                            console.log("All files processed");
+                            onComplete && onComplete();
+                        }
+                    })
+                    .catch(error => {
+                        console.error(`Error processing file ${file.path}:`, error);
+                        filesRemaining--;
+                        if (filesRemaining === 0) {
+                            console.log("All files processed");
+                            onComplete && onComplete();
+                        }
+                    });
+            };
+
+            filesJson.forEach(processFile);
+        };
+
+        fetchAllFiles(filesJson);
+
 
         console.log("Starting loop...");
         const frameInterval = 1000 / frame_rate;
@@ -1183,8 +1252,8 @@ class UiManager {
 
 
     function updateCanvas(frameData) {
-       // we are going to add the screenMap to the graphicsManager
-       frameData.screenMap = screenMap;
+        // we are going to add the screenMap to the graphicsManager
+        frameData.screenMap = screenMap;
         if (!graphicsManager) {
             const isDenseMap = isDenseGrid(frameData);
             if (FORCE_THREEJS_RENDERER) {
@@ -1208,7 +1277,7 @@ class UiManager {
             graphicsManager.reset();
         }
 
- 
+
         graphicsManager.updateCanvas(frameData);
     }
 
@@ -1216,21 +1285,39 @@ class UiManager {
     // Ensure we wait for the module to load
     const onModuleLoaded = async (fastLedLoader) => {
         // Unpack the module functions and send them to the runFastLED function
-        function __runFastLED(moduleInstance, frameRate) {
+
+
+        function __runFastLED(moduleInstance, frameRate, filesJson) {
             const exports_exist = moduleInstance && moduleInstance._extern_setup && moduleInstance._extern_loop;
             if (!exports_exist) {
                 console.error("FastLED setup or loop functions are not available.");
                 return;
             }
-            return runFastLED(moduleInstance._extern_setup, moduleInstance._extern_loop, frameRate, moduleInstance);
-        }
 
+            return runFastLED(moduleInstance._extern_setup, moduleInstance._extern_loop, frameRate, moduleInstance, filesJson);
+        }
+        // Start fetch now in parallel
+        const fetchFilePromise = async (fetchFilePath) => {
+            const response = await fetch(fetchFilePath);
+            const data = await response.json();
+            return data;
+        };
+        const filesJsonPromise = fetchFilePromise("files.json");
         try {
             if (typeof fastLedLoader === 'function') {
                 // Load the module
-                fastLedLoader().then(instance => {
+                fastLedLoader().then(async (instance) => {
                     console.log("Module loaded, running FastLED...");
-                    __runFastLED(instance, frameRate);
+                    // Wait for the files.json to load.
+                    let filesJson = null;
+                    try {
+                        filesJson = await filesJsonPromise;
+                        console.log("Files JSON:", filesJson);
+                    } catch (error) {
+                        console.error("Error fetching files.json:", error);
+                        filesJson = {};
+                    }
+                    __runFastLED(instance, frameRate, filesJson);
                 }).catch(err => {
                     console.error("Error loading fastled as a module:", err);
                 });

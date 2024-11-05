@@ -1,6 +1,6 @@
 #pragma once
 
-#include "fx/storage/sd.h"
+#include "fs.h"
 
 #include <SPI.h>
 #ifdef USE_SDFAT
@@ -10,7 +10,7 @@
 #endif
 
 #include "namespace.h"
-#include "ptr.h"
+#include "ref.h"
 
 FASTLED_NAMESPACE_BEGIN
 
@@ -60,7 +60,7 @@ public:
 };
 #endif
 
-class SdCardSpiArduino : public SdCardSpi {
+class FsArduino : public FsImpl {
 private:
     int _cs_pin;
 #ifdef USE_SDFAT
@@ -68,13 +68,13 @@ private:
 #endif
 
 public:
-    SdCardSpiArduino(int cs_pin) : _cs_pin(cs_pin) {}
+    FsArduino(int cs_pin) : _cs_pin(cs_pin) {}
 
-    bool begin(int chipSelect) override {
+    bool begin() override {
 #ifdef USE_SDFAT
         return _sd.begin(chipSelect, SPI_HALF_SPEED);
 #else
-        return SD.begin(chipSelect);
+        return SD.begin(_cs_pin);
 #endif
     }
 
@@ -82,13 +82,13 @@ public:
         // SD library doesn't have an end() method
     }
 
-    FileHandlePtr openRead(const char *name) override {
+    FileHandleRef openRead(const char *name) override {
 #ifdef USE_SDFAT
         SdFile file;
         if (!file.open(name, oflag)) {
-            return Ptr<FileHandle>::TakeOwnership(nullptr);
+            return Ref<FileHandle>::TakeOwnership(nullptr);
         }
-        return Ptr<FileHandle>::TakeOwnership(new SdFatFileHandle(std::move(file), name));
+        return Ref<FileHandle>::TakeOwnership(new SdFatFileHandle(std::move(file), name));
 #else
 
         #ifdef ESP32
@@ -97,13 +97,13 @@ public:
         File file = SD.open(name);
         #endif
         if (!file) {
-            return Ptr<FileHandle>::TakeOwnership(nullptr);
+            return Ref<FileHandle>::TakeOwnership(nullptr);
         }
-        return Ptr<FileHandle>::TakeOwnership(new SDFileHandle(std::move(file), name));
+        return Ref<FileHandle>::TakeOwnership(new SDFileHandle(std::move(file), name));
 #endif
     }
 
-    void close(FileHandlePtr file) override {
+    void close(FileHandleRef file) override {
         // The close operation is now handled in the FileHandle wrapper classes
         // This method is no longer necessary, but we keep it for compatibility
         if (file) {
@@ -112,11 +112,9 @@ public:
     }
 };
 
-inline SdCardSpiPtr SdCardSpi::New(int cs_pin) {
-    SdCardSpi* ptr = new SdCardSpiArduino(cs_pin);
-    return Ptr<SdCardSpi>::TakeOwnership(ptr);
+inline FsImplRef make_filesystem(int cs_pin) {
+    return FsImplRef::Null();
 }
-
 
 
 FASTLED_NAMESPACE_END
