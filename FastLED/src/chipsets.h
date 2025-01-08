@@ -4,7 +4,7 @@
 #include "FastLED.h"
 #include "pixeltypes.h"
 #include "five_bit_hd_gamma.h"
-#include "force_inline.h"
+#include "fl/force_inline.h"
 #include "pixel_iterator.h"
 #include "crgb.h"
 #include "eorder.h"
@@ -27,6 +27,10 @@
  #endif  // FASTLED_TEENSY4
 #endif  // FASTLED_CLOCKLESS_USES_NANOSECONDS
 
+
+#ifdef __IMXRT1062__
+#include "platforms/arm/k20/clockless_objectfled.h"
+#endif
 
 /// @file chipsets.h
 /// Contains the bulk of the definitions for the various LED chipsets supported.
@@ -155,10 +159,9 @@ class RGBWEmulatedController
             // In the case of src data not a multiple of 3, then we need to
             // add pad bytes so that the delegate controller doesn't walk off the end
             // of the array and invoke a buffer overflow panic.
-            mNumRGBWLeds = (num_leds * 4 + 2) / 3; // Round up to nearest multiple of 3
-            size_t extra = mNumRGBWLeds % 3 ? 1 : 0;
+            uint32_t new_size = Rgbw::size_as_rgb(num_leds);
             delete[] mRGBWPixels;
-            mRGBWPixels = new CRGB[mNumRGBWLeds + extra];
+            mRGBWPixels = new CRGB[new_size];
         }
     }
 
@@ -377,13 +380,13 @@ class APA102Controller : public CPixelLEDController<RGB_ORDER> {
 public:
 	APA102Controller() {}
 
-	virtual void init() {
+	virtual void init() override {
 		mSPI.init();
 	}
 
 protected:
 	/// @copydoc CPixelLEDController::showPixels()
-	virtual void showPixels(PixelController<RGB_ORDER> & pixels) {
+	virtual void showPixels(PixelController<RGB_ORDER> & pixels) override {
 		PixelIterator iterator = pixels.as_iterator(this->getRgbw());
 		switch (GAMMA_CORRECTION_MODE) {
 			case kFiveBitGammaCorrectionMode_Null: {
@@ -876,6 +879,8 @@ class UCS1912Controller : public ClocklessController<DATA_PIN, 2 * FMUL, 8 * FMU
 // At T=T1+T2+T3 : the cycle is concluded (next bit can be sent)
 //
 // Python script to calculate the values for T1, T2, and T3 for FastLED:
+// Note: there is a discussion on whether this python script is correct or not:
+//  https://github.com/FastLED/FastLED/issues/1806
 //
 //  print("Enter the values of T0H, T0L, T1H, T1L, in nanoseconds: ")
 //  T0H = int(input("  T0H: "))
@@ -948,6 +953,30 @@ class WS2813Controller : public ClocklessController<DATA_PIN, C_NS_WS2813(320), 
 #define FASTLED_WS2812_T3 375
 #endif
 
+
+#ifdef FASTLED_USES_OBJECTFLED
+#ifndef __IMXRT1062__
+#error "ObjectFLED is only supported on Teensy 4.0/4.1"
+#else
+template <uint8_t DATA_PIN, EOrder RGB_ORDER = GRB>
+class WS2812Controller800Khz:
+	public fl::ClocklessController_ObjectFLED_WS2812<
+		DATA_PIN,
+		RGB_ORDER> {
+ public:
+    typedef fl::ClocklessController_ObjectFLED_WS2812<DATA_PIN, RGB_ORDER> Base;
+	WS2812Controller800Khz(): Base(FASTLED_LED_OVERCLOCK) {}
+};
+#endif  // __IMXRT1062__
+#elif defined(FASTLED_USES_ESP32S3_I2S)
+#include "platforms/esp/32/clockless_i2s_esp32s3.h"
+template <uint8_t DATA_PIN, EOrder RGB_ORDER = GRB>
+class WS2812Controller800Khz:
+	public fl::ClocklessController_I2S_Esp32_WS2812<
+		DATA_PIN,
+		RGB_ORDER
+	> {};
+#else
 // WS2812 - 250ns, 625ns, 375ns
 template <uint8_t DATA_PIN, EOrder RGB_ORDER = GRB>
 class WS2812Controller800Khz : public ClocklessController<
@@ -956,6 +985,8 @@ class WS2812Controller800Khz : public ClocklessController<
 	C_NS_WS2812(FASTLED_WS2812_T2),
 	C_NS_WS2812(FASTLED_WS2812_T3),
 	RGB_ORDER> {};
+#endif  // defined(FASTLED_USES_OBJECTFLED)
+
 
 // WS2811@400khz - 800ns, 800ns, 900ns
 template <uint8_t DATA_PIN, EOrder RGB_ORDER = GRB>

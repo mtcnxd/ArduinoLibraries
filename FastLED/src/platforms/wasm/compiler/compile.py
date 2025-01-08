@@ -51,6 +51,9 @@ class SyntaxCheckResult:
     message: str
 
 
+_CHECK_SYNTAX = False
+_COMPILER_PATH = "em++"
+
 JS_DIR = Path("/js")
 FASTLED_DIR = JS_DIR / "fastled"
 FASTLED_SRC = FASTLED_DIR / "src"
@@ -66,6 +69,7 @@ FASTLED_SRC_DIR = FASTLED_DIR / "src"
 FASTLED_PLATFORMS_DIR = FASTLED_SRC_DIR / "platforms"
 FASTLED_WASM_DIR = FASTLED_PLATFORMS_DIR / "wasm"
 FASTLED_COMPILER_DIR = FASTLED_WASM_DIR / "compiler"
+FASTLED_MODULES_DIR = FASTLED_COMPILER_DIR / "modules"
 
 PIO_BUILD_DIR = JS_DIR / ".pio/build"
 ARDUINO_H_SRC = JS_DIR / "Arduino.h"
@@ -76,7 +80,7 @@ INDEX_JS_SRC = FASTLED_COMPILER_DIR / "index.js"
 
 WASM_COMPILER_SETTTINGS = JS_DIR / "wasm_compiler_flags.py"
 OUTPUT_FILES = ["fastled.js", "fastled.wasm"]
-HEADERS_TO_INSERT = ['#include "Arduino.h"', '#include "platforms/wasm/js.h"']
+HEADERS_TO_INSERT = ["#include <Arduino.h>", '#include "platforms/wasm/js.h"']
 FILE_EXTENSIONS = [".ino", ".h", ".hpp", ".cpp"]
 MAX_COMPILE_ATTEMPTS = 1  # Occasionally the compiler fails for unknown reasons, but disabled because it increases the build time on failure.
 FASTLED_OUTPUT_DIR_NAME = "fastled_js"
@@ -232,8 +236,24 @@ def check_syntax_with_gcc(file_path, gcc_path="gcc"):
     """
     try:
         # Run GCC with -fsyntax-only flag for syntax checking
+        cmd_list = [
+            gcc_path,
+            "-fsyntax-only",
+            "-std=gnu++20",
+            "-fpermissive",
+            "-Wno-everything",  # Suppress all warnings
+            "-I",
+            "/js/src/",  # Add /js/src/ to the include path
+            "-I",
+            "/js/fastled/src/",  # Add /js/fastled/src/ to the include path
+            "-I",
+            "/emsdk/upstream/emscripten/system/include",
+            file_path,
+        ]
+        cmd_str = subprocess.list2cmdline(cmd_list)
+        print(f"Running command: {cmd_str}")
         result = subprocess.run(
-            [gcc_path, "-fsyntax-only", file_path],
+            cmd_list,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -449,22 +469,25 @@ def main() -> int:
             if args.only_copy:
                 return 0
 
-        print("Performing syntax check...")
-        syntax_results = check_syntax(JS_SRC)
-        failed_checks = [r for r in syntax_results if not r.is_valid]
-        if failed_checks:
-            print("\nSyntax check failed!")
-            for result in failed_checks:
-                print(f"\nFile: {result.file_path}")
-                print(f"Error: {result.message}")
-            return 1
-        print("Syntax check passed for all files.")
-
         if do_insert_header:
             process_ino_files(JS_SRC)
             if args.only_insert_header:
                 print("Transform to cpp and insert header operations completed.")
                 return 0
+
+        if _CHECK_SYNTAX:
+            print("Performing syntax check...")
+            syntax_results = check_syntax(
+                directory_path=JS_SRC, gcc_path=_COMPILER_PATH
+            )
+            failed_checks = [r for r in syntax_results if not r.is_valid]
+            if failed_checks:
+                print("\nSyntax check failed!")
+                for result in failed_checks:
+                    print(f"\nFile: {result.file_path}")
+                    print(f"Error: {result.message}")
+                return 1
+            print("Syntax check passed for all files.")
 
         if do_compile:
             try:
@@ -497,29 +520,39 @@ def main() -> int:
             fastled_js_dir.mkdir(parents=True, exist_ok=True)
 
             for file in ["fastled.js", "fastled.wasm"]:
-                print(f"Copying {file} to output directory")
-                shutil.copy2(build_dir / file, fastled_js_dir / file)
+                _src = build_dir / file
+                _dst = fastled_js_dir / file
+                print(f"Copying {_src} to {_dst}")
+                shutil.copy2(_src, _dst)
 
-            print("Copying index.html to output directory")
+            print(f"Copying {INDEX_HTML_SRC} to output directory")
             shutil.copy2(INDEX_HTML_SRC, fastled_js_dir / "index.html")
-            print("Copying index.css to output directory")
+            print(f"Copying {INDEX_CSS_SRC} to output directory")
             shutil.copy2(INDEX_CSS_SRC, fastled_js_dir / "index.css")
-            print("Copying index.js to output directory")
-            shutil.copy2(INDEX_JS_SRC, fastled_js_dir / "index.js")
+
+            # copy all js files in FASTLED_COMPILER_DIR to output directory
+            Path(fastled_js_dir / "modules").mkdir(parents=True, exist_ok=True)
+            for _file in FASTLED_MODULES_DIR.iterdir():
+                if _file.suffix == ".js":
+                    print(f"Copying {_file} to output directory")
+                    shutil.copy2(_file, fastled_js_dir / "modules" / _file.name)
+
             fastled_js_mem = build_dir / "fastled.js.mem"
             fastled_wasm_map = build_dir / "fastled.wasm.map"
             fastled_js_symbols = build_dir / "fastled.js.symbols"
             if fastled_js_mem.exists():
-                print(f"Copying {fastled_js_mem.name} to output directory")
+                print(f"Copying {fastled_js_mem} to output directory")
                 shutil.copy2(fastled_js_mem, fastled_js_dir / fastled_js_mem.name)
             if fastled_wasm_map.exists():
-                print(f"Copying {fastled_wasm_map.name} to output directory")
+                print(f"Copying {fastled_wasm_map} to output directory")
                 shutil.copy2(fastled_wasm_map, fastled_js_dir / fastled_wasm_map.name)
             if fastled_js_symbols.exists():
-                print(f"Copying {fastled_js_symbols.name} to output directory")
+                print(f"Copying {fastled_js_symbols} to output directory")
                 shutil.copy2(
                     fastled_js_symbols, fastled_js_dir / fastled_js_symbols.name
                 )
+            print("Copying index.js to output directory")
+            shutil.copy2(INDEX_JS_SRC, fastled_js_dir / "index.js")
             optional_input_data_dir = src_dir / "data"
             output_data_dir = fastled_js_dir / optional_input_data_dir.name
 

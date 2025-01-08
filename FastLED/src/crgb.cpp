@@ -1,11 +1,26 @@
+/// @file crgb.cpp
+/// Utility functions for the red, green, and blue (RGB) pixel struct
 
+#define FASTLED_INTERNAL
 #include "FastLED.h"
 #include "crgb.h"
 #include "lib8tion/math8.h"
 
-#include "namespace.h"
+#include "fl/namespace.h"
 
 FASTLED_NAMESPACE_BEGIN
+
+fl::Str CRGB::toString() const {
+    fl::Str out;
+    out.append("CRGB(");
+    out.append(int(r));
+    out.append(", ");
+    out.append(int(g));
+    out.append(", ");
+    out.append(int(b));
+    out.append(")");
+    return out;
+}
 
 CRGB CRGB::computeAdjustment(uint8_t scale, const CRGB & colorCorrection, const CRGB & colorTemperature) {
     #if defined(NO_CORRECTION) && (NO_CORRECTION==1)

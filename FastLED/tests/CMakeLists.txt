@@ -45,17 +45,82 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 # Define common compiler flags and definitions
 set(COMMON_COMPILE_FLAGS
     -Wall
+    -Wextra 
+    #-Wpedantic
     -funwind-tables
     -g3
     -ggdb
     -fno-omit-frame-pointer
     -O0
     -fno-inline
+    -Werror=suggest-override
+    -Werror=return-type
+    -Werror=missing-declarations
+    -Werror=redundant-decls
+    -Werror=init-self
+    -Werror=missing-field-initializers  
+    -Werror=pointer-arith
+    -Werror=write-strings
+    -Werror=format=2
+    -Werror=implicit-fallthrough
+    -Werror=missing-include-dirs
+    -Werror=date-time
+    -Werror=non-virtual-dtor
+    #-Werror=reorder
+    -Werror=sign-compare
+    -Werror=float-equal
+    #-Werror=conversion
+    -Werror=switch-enum
+    #-Werror=switch-default
+    -Werror=unused-parameter
+    -Werror=unused-variable
+    -Werror=unused-value
+
+    # Not supported in gcc.
+    # -Werror=infinite-recursion
+)
+
+set(UNIT_TEST_COMPILE_FLAGS
+    -Wall
+    #-Wextra 
+    #-Wpedantic
+    -funwind-tables
+    -g3
+    -ggdb
+    -fno-omit-frame-pointer
+    -O0
+    -fno-inline
+    -Werror=suggest-override
+    -Werror=return-type
+    -Werror=missing-declarations
+    #-Werror=redundant-decls
+    -Werror=init-self
+    #-Werror=missing-field-initializers  
+    #-Werror=pointer-arith
+    #-Werror=write-strings
+    #-Werror=format=2
+    #-Werror=implicit-fallthrough
+    #-Werror=missing-include-dirs
+    -Werror=date-time
+    -Werror=non-virtual-dtor
+    #-Werror=reorder
+    #-Werror=sign-compare
+    #-Werror=float-equal
+    #-Werror=conversion
+    -Werror=switch-enum
+    #-Werror=switch-default
+    #-Werror=unused-parameter
+    #-Werror=unused-variable
+    #-Werror=unused-value
+
+    # Not supported in gcc.
+    #-Werror=infinite-recursion
 )
 
 set(COMMON_COMPILE_DEFINITIONS
     DEBUG
     FASTLED_FORCE_NAMESPACE
+    FASTLED_NO_AUTO_NAMESPACE
     FASTLED_TESTING
     ENABLE_CRASH_HANDLER
     FASTLED_STUB_IMPL
@@ -86,6 +151,7 @@ file(GLOB_RECURSE FASTLED_SOURCES
     "${FASTLED_SOURCE_DIR}/src/platforms/*.cpp"
     "${FASTLED_SOURCE_DIR}/src/lib8tion/*.cpp"
     "${FASTLED_SOURCE_DIR}/src/fl/*.cpp"
+    "${FASTLED_SOURCE_DIR}/src/sensors/*.cpp"
 )
 
 #message(STATUS "Found FastLED sources: ${FASTLED_SOURCES}")
@@ -95,6 +161,7 @@ set(FX_SOURCES "")
 set(PLATFORMS_SOURCES "")
 set(LIB8TION_SOURCES "")
 set(FL_SOURCES "")
+set(SENSORS_SOURCES "")
 set(OTHER_SOURCES "")
 
 # Categorize each source file
@@ -107,6 +174,8 @@ foreach(SOURCE ${FASTLED_SOURCES})
         list(APPEND LIB8TION_SOURCES ${SOURCE})
     elseif(SOURCE MATCHES "/fl/")
         list(APPEND FL_SOURCES ${SOURCE})
+    elseif(SOURCE MATCHES "/sensors/")
+        list(APPEND SENSORS_SOURCES ${SOURCE})
     else()
         list(APPEND OTHER_SOURCES ${SOURCE})
     endif()
@@ -176,6 +245,17 @@ if(FL_SOURCES)
     target_compile_definitions(FastLED_fl PRIVATE ${COMMON_COMPILE_DEFINITIONS})
 endif()
 
+if(SENSORS_SOURCES)
+    add_library(FastLED_sensors OBJECT ${SENSORS_SOURCES})
+    set_target_properties(FastLED_sensors PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+    )
+    target_compile_options(FastLED_sensors PRIVATE ${COMMON_COMPILE_FLAGS})
+    target_compile_definitions(FastLED_sensors PRIVATE ${COMMON_COMPILE_DEFINITIONS})
+endif()
+
 # Create the main FastLED static library that includes all components
 add_library(FastLED STATIC 
     $<TARGET_OBJECTS:FastLED_core>
@@ -183,6 +263,7 @@ add_library(FastLED STATIC
     $<$<TARGET_EXISTS:FastLED_platforms>:$<TARGET_OBJECTS:FastLED_platforms>>
     $<$<TARGET_EXISTS:FastLED_lib8tion>:$<TARGET_OBJECTS:FastLED_lib8tion>>
     $<$<TARGET_EXISTS:FastLED_fl>:$<TARGET_OBJECTS:FastLED_fl>>
+    $<$<TARGET_EXISTS:FastLED_sensors>:$<TARGET_OBJECTS:FastLED_sensors>>
 )
 
 # Set properties for the main library
@@ -191,7 +272,7 @@ set_target_properties(FastLED PROPERTIES
     CXX_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON
 )
-target_compile_options(FastLED PRIVATE ${COMMON_COMPILE_FLAGS})
+target_compile_options(FastLED PRIVATE ${UNIT_TEST_COMPILE_FLAGS})
 target_compile_definitions(FastLED PRIVATE ${COMMON_COMPILE_DEFINITIONS})
 if(NOT APPLE)
     target_link_options(FastLED PRIVATE -static-libgcc -static-libstdc++)
@@ -262,7 +343,7 @@ foreach(TEST_SOURCE ${TEST_SOURCES})
     if(NOT APPLE)
         target_link_options(${TEST_NAME} PRIVATE -static-libgcc -static-libstdc++)
     endif()
-    target_compile_options(${TEST_NAME} PRIVATE ${COMMON_COMPILE_FLAGS})
+    target_compile_options(${TEST_NAME} PRIVATE ${UNIT_TEST_COMPILE_FLAGS})
     target_compile_definitions(${TEST_NAME} PRIVATE 
         ${COMMON_COMPILE_DEFINITIONS}
         $<$<BOOL:${USE_LIBUNWIND}>:USE_LIBUNWIND>

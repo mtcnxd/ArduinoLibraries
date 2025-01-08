@@ -3,10 +3,11 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "ref.h"
-#include "template_magic.h"
-#include "fixed_vector.h"
-#include "namespace.h"
+#include "fl/ptr.h"
+#include "fl/template_magic.h"
+#include "fl/vector.h"
+#include "fl/namespace.h"
+#include "fl/math_macros.h"
 
 #ifndef FASTLED_STR_INLINED_SIZE
 #define FASTLED_STR_INLINED_SIZE 64
@@ -32,7 +33,7 @@ class Str;
 ///////////////////////////////////////////////////////
 // Implementation details.
 
-FASTLED_SMART_REF(StringHolder);
+FASTLED_SMART_PTR(StringHolder);
 
 class StringFormatter {
   public:
@@ -42,7 +43,7 @@ class StringFormatter {
     static bool isDigit(char c) { return c >= '0' && c <= '9'; }
 };
 
-class StringHolder : public Referent {
+class StringHolder : public fl::Referent {
   public:
     StringHolder(const char *str);
     StringHolder(size_t length);
@@ -76,7 +77,7 @@ template <size_t SIZE = 64> class StrN {
   private:
     size_t mLength = 0;
     char mInlineData[SIZE] = {0};
-    StringHolderRef mHeapData;
+    StringHolderPtr mHeapData;
 
   public:
     // Constructors
@@ -91,7 +92,7 @@ template <size_t SIZE = 64> class StrN {
             memcpy(mInlineData, str, len + 1);
             mHeapData.reset();
         } else {
-            mHeapData = StringHolderRef::New(str);
+            mHeapData = StringHolderPtr::New(str);
         }
     }
     StrN(const StrN &other) { copy(other); }
@@ -108,7 +109,7 @@ template <size_t SIZE = 64> class StrN {
                 return;
             }
             mHeapData.reset();
-            mHeapData = StringHolderRef::New(str);
+            mHeapData = StringHolderPtr::New(str);
         }
     }
     StrN &operator=(const StrN &other) {
@@ -135,7 +136,7 @@ template <size_t SIZE = 64> class StrN {
             memcpy(mInlineData, str, len + 1);
             mHeapData.reset();
         } else {
-            mHeapData = StringHolderRef::New(str, len);
+            mHeapData = StringHolderPtr::New(str, len);
         }
     }
 
@@ -148,10 +149,14 @@ template <size_t SIZE = 64> class StrN {
             if (other.mHeapData) {
                 mHeapData = other.mHeapData;
             } else {
-                mHeapData = StringHolderRef::New(other.c_str());
+                mHeapData = StringHolderPtr::New(other.c_str());
             }
         }
         mLength = len;
+    }
+
+    size_t capacity() const {
+        return mHeapData ? mHeapData->capacity() : SIZE;
     }
 
     size_t write(int n) {
@@ -167,23 +172,24 @@ template <size_t SIZE = 64> class StrN {
 
     size_t write(const char *str, size_t n) {
         size_t newLen = mLength + n;
-        if (newLen + 1 <= SIZE) {
-            memcpy(mInlineData + mLength, str, n);
-            mLength = newLen;
-            mInlineData[mLength] = '\0';
-            return mLength;
-        }
         if (mHeapData && !mHeapData->isShared()) {
             if (!mHeapData->hasCapacity(newLen)) {
-                mHeapData->grow(newLen * 3 / 2); // Grow by 50%
+                size_t grow_length = MAX(3, newLen * 3 / 2);
+                mHeapData->grow(grow_length); // Grow by 50%
             }
             memcpy(mHeapData->data() + mLength, str, n);
             mLength = newLen;
             mHeapData->data()[mLength] = '\0';
             return mLength;
         }
+        if (newLen + 1 <= SIZE) {
+            memcpy(mInlineData + mLength, str, n);
+            mLength = newLen;
+            mInlineData[mLength] = '\0';
+            return mLength;
+        }
         mHeapData.reset();
-        StringHolderRef newData = StringHolderRef::New(newLen);
+        StringHolderPtr newData = StringHolderPtr::New(newLen);
         if (newData) {
             memcpy(newData->data(), c_str(), mLength);
             memcpy(newData->data() + mLength, str, n);
@@ -232,10 +238,10 @@ template <size_t SIZE = 64> class StrN {
         return c_str()[index];
     }
 
+    bool empty() const { return mLength == 0; }
+
     // Append method
-    void append(const char *str) { write(str, strlen(str)); }
-    void append(char c) { write(&c, 1); }
-    void append(const StrN &str) { write(str.c_str(), str.size()); }
+
 
     bool operator<(const StrN &other) const {
         return strcmp(c_str(), other.c_str()) < 0;
@@ -245,9 +251,35 @@ template <size_t SIZE = 64> class StrN {
         return strcmp(c_str(), other.c_str()) < 0;
     }
 
-    void clear() {
+    void reserve(size_t newCapacity) {
+        // If capacity is less than current length, do nothing
+        if (newCapacity <= mLength) {
+            return;
+        }
+
+        // If new capacity fits in inline buffer, no need to allocate
+        if (newCapacity + 1 <= SIZE) {
+            return;
+        }
+
+        // If we already have unshared heap data with sufficient capacity, do nothing
+        if (mHeapData && !mHeapData->isShared() && mHeapData->hasCapacity(newCapacity)) {
+            return;
+        }
+
+        // Need to allocate new storage
+        StringHolderPtr newData = StringHolderPtr::New(newCapacity);
+        if (newData) {
+            // Copy existing content
+            memcpy(newData->data(), c_str(), mLength);
+            newData->data()[mLength] = '\0';
+            mHeapData = newData;
+        }
+    }
+
+    void clear(bool freeMemory = false) {
         mLength = 0;
-        if (mHeapData) {
+        if (freeMemory && mHeapData) {
             mHeapData.reset();
         }
     }
@@ -297,8 +329,10 @@ template <size_t SIZE = 64> class StrN {
         return StringFormatter::parseFloat(c_str(), mLength);
     }
 
+
+
   private:
-    StringHolderRef mData;
+    StringHolderPtr mData;
 };
 
 class Str : public StrN<FASTLED_STR_INLINED_SIZE> {
@@ -312,12 +346,16 @@ class Str : public StrN<FASTLED_STR_INLINED_SIZE> {
         copy(other);
         return *this;
     }
+
+    Str& append(const char *str) { write(str, strlen(str)); return *this; }
+    Str& append(const char *str, size_t len) { write(str, len); return *this; }
+    Str& append(char c) { write(&c, 1); return *this; }
+    Str& append(int n) { write(n); return *this; }
+    Str& append(const StrN &str) { write(str.c_str(), str.size()); return *this; }
+
+
 };
 
-// Make compatible with std::ostream and other ostream-like objects
-FASTLED_DEFINE_OUTPUT_OPERATOR(Str) {
-    os << obj.c_str();
-    return os;
-}
+
 
 } // namespace fl

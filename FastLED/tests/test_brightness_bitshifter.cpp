@@ -1,15 +1,15 @@
 
 // g++ --std=c++11 test.cpp
 
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "test.h"
 
-#include "doctest.h"
+#include "test.h"
 #include "lib8tion/intmap.h"
 #include "lib8tion/brightness_bitshifter.h"
 #include <iostream>
 #include <bitset>
 
-#include "namespace.h"
+#include "fl/namespace.h"
 FASTLED_USING_NAMESPACE
 
 TEST_CASE("brightness_bitshifter") {

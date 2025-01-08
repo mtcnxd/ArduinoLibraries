@@ -1,7 +1,7 @@
 #pragma once
 
-/// @file controller.h
-/// base definitions used by led controllers for writing out led data
+/// @file pixel_controller.h
+/// Low level pixel data writing class
 
 // Note that new code should use the PixelIterator concrete object to write out
 // led data.
@@ -14,8 +14,8 @@
 #include "FastLED.h"
 #include "rgbw.h"
 #include "five_bit_hd_gamma.h"
-#include "force_inline.h"
-#include "namespace.h"
+#include "fl/force_inline.h"
+#include "fl/namespace.h"
 #include "eorder.h"
 #include "dither_mode.h"
 #include "pixel_iterator.h"

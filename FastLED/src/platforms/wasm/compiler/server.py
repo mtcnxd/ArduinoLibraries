@@ -13,20 +13,47 @@ from tempfile import NamedTemporaryFile
 from threading import Timer
 from typing import Callable
 
+import psutil  # type: ignore
 from disklru import DiskLRUCache  # type: ignore
-from fastapi import Header  # type: ignore
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse  # type: ignore
+from fastapi import (  # type: ignore
+    BackgroundTasks,
+    Body,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    UploadFile,
+)
+from fastapi.responses import FileResponse, RedirectResponse, Response  # type: ignore
 from sketch_hasher import generate_hash_of_project_files
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
 
+_EXAMPLES: list[str] = [
+    "Chromancer",
+    "LuminescentGrand",
+    "wasm",
+    "FxAnimartrix",
+    "FxCylon",
+    "FxDemoReel100",
+    "FxFire2012",
+    "FxEngine",
+    "FxGfx2Video",
+    "FxNoisePlusPalette",
+    "FxNoiseRing",
+    "FxSdCard",
+    "FxWater",
+]
 _VOLUME_MAPPED_SRC = Path("/host/fastled/src")
 _RSYNC_DEST = Path("/js/fastled/src")
 
+_TEMP_DIR = Path("/tmp")
+
 _TEST = False
 _UPLOAD_LIMIT = 10 * 1024 * 1024
+_MEMORY_LIMIT_MB = int(os.environ.get("MEMORY_LIMIT_MB", "0"))  # 0 means disabled
+_MEMORY_CHECK_INTERVAL = 0.1  # Check every 100ms
+_MEMORY_EXCEEDED_EXIT_CODE = 137  # Standard OOM kill code
 # Protect the endpoints from random bots.
 # Note that that the wasm_compiler.py greps for this string to get the URL of the server.
 # Changing the name could break the compiler.
@@ -37,7 +64,7 @@ _LIVE_GIT_UPDATES_INTERVAL = int(
 )  # Update every 24 hours
 _ALLOW_SHUTDOWN = os.environ.get("ALLOW_SHUTDOWN", "false").lower() in ["true", "1"]
 _NO_SKETCH_CACHE = os.environ.get("NO_SKETCH_CACHE", "false").lower() in ["true", "1"]
-_LIVE_GIT_FASTLED_DIR = Path("/git/fastled2")
+_LIVE_GIT_FASTLED_DIR = Path("/git/fastled")
 
 # TODO - cleanup
 _NO_AUTO_UPDATE = (
@@ -56,6 +83,10 @@ if _NO_SKETCH_CACHE:
 UPLOAD_DIR = Path("/uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 COMPILE_LOCK = threading.Lock()
+COMPILE_COUNT = 0
+COMPILE_FAILURES = 0
+COMPILE_SUCCESSES = 0
+START_TIME = time.time()
 
 OUTPUT_DIR = Path("/output")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -103,7 +134,7 @@ def update_live_git_repo() -> None:
                     "git",
                     "clone",
                     "https://github.com/fastled/fastled.git",
-                    "/git/fastled2",
+                    str(_LIVE_GIT_FASTLED_DIR),
                     "--depth=1",
                 ],
                 check=True,
@@ -218,6 +249,11 @@ def sync_live_git_to_target() -> None:
     sync_src_to_target(
         _LIVE_GIT_FASTLED_DIR / "src", _RSYNC_DEST, callback=on_files_changed
     )
+    sync_src_to_target(
+        _LIVE_GIT_FASTLED_DIR / "examples",
+        _RSYNC_DEST.parent / "examples",
+        callback=on_files_changed,
+    )
     # Basically a setTimeout() in JS.
     Timer(
         _LIVE_GIT_UPDATES_INTERVAL, sync_live_git_to_target
@@ -233,6 +269,10 @@ def compile_source(
     hash_value: str | None = None,
 ) -> FileResponse | HTTPException:
     """Compile source code and return compiled artifacts as a zip file."""
+    global COMPILE_COUNT
+    global COMPILE_FAILURES
+    global COMPILE_SUCCESSES
+    COMPILE_COUNT += 1
     temp_zip_dir = None
     try:
         # Find the first directory in temp_src_dir
@@ -278,11 +318,13 @@ def compile_source(
         proc.stdout.close()
         return_code = proc.wait()
         if return_code != 0:
+            COMPILE_FAILURES += 1
             print(f"Compilation failed with return code {return_code}:\n{stdout}")
             return HTTPException(
                 status_code=400,
                 detail=f"Compilation failed with return code {return_code}:\n{stdout}",
             )
+        COMPILE_SUCCESSES += 1
     compile_time = time.time() - COMPILE_LOCK_end
     COMPILE_LOCK_time = COMPILE_LOCK_end - COMPILE_LOCK_start
 
@@ -361,6 +403,26 @@ def compile_source(
     )
 
 
+def memory_watchdog() -> None:
+    """Monitor memory usage and kill process if it exceeds limit."""
+    if _MEMORY_LIMIT_MB <= 0:
+        return
+
+    def check_memory() -> None:
+        while True:
+            process = psutil.Process(os.getpid())
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            if memory_mb > _MEMORY_LIMIT_MB:
+                print(
+                    f"Memory limit exceeded! Using {memory_mb:.1f}MB > {_MEMORY_LIMIT_MB}MB limit"
+                )
+                os._exit(_MEMORY_EXCEEDED_EXIT_CODE)
+            time.sleep(_MEMORY_CHECK_INTERVAL)
+
+    watchdog_thread = threading.Thread(target=check_memory, daemon=True)
+    watchdog_thread.start()
+
+
 def get_settings() -> dict:
     settings = {
         "ALLOW_SHUTDOWN": _ALLOW_SHUTDOWN,
@@ -384,6 +446,11 @@ def startup_event():
         print(f"Settings: {json.dumps(get_settings(), indent=2)}")
     except Exception as e:
         print(f"Error getting settings: {e}")
+
+    if _MEMORY_LIMIT_MB > 0:
+        print(f"Starting memory watchdog (limit: {_MEMORY_LIMIT_MB}MB)")
+        memory_watchdog()
+
     sync_source_directory_if_volume_is_mapped()
     if _LIVE_GIT_UPDATES_ENABLED:
         Timer(
@@ -396,12 +463,14 @@ def startup_event():
 @app.get("/", include_in_schema=False)
 async def read_root() -> RedirectResponse:
     """Redirect to the /docs endpoint."""
+    print("Endpoint accessed: / (root redirect to docs)")
     return RedirectResponse(url="/docs")
 
 
 @app.get("/healthz")
 async def healthz() -> dict:
     """Health check endpoint."""
+    print("Endpoint accessed: /healthz")
     return {"status": "ok"}
 
 
@@ -410,6 +479,7 @@ if _ALLOW_SHUTDOWN:
     @app.get("/shutdown")
     async def shutdown() -> dict:
         """Shutdown the server."""
+        print("Endpoint accessed: /shutdown")
         print("Shutting down server...")
         SKETCH_CACHE.close()
         os._exit(0)
@@ -419,6 +489,7 @@ if _ALLOW_SHUTDOWN:
 @app.get("/settings")
 async def settings() -> dict:
     """Get the current settings."""
+    print("Endpoint accessed: /settings")
     settings = {
         "ALLOW_SHUTDOWN": _ALLOW_SHUTDOWN,
         "NO_AUTO_UPDATE": os.environ.get("NO_AUTO_UPDATE", "0"),
@@ -435,7 +506,130 @@ async def settings() -> dict:
 @app.get("/compile/wasm/inuse")
 async def compiler_in_use() -> dict:
     """Check if the compiler is in use."""
+    print("Endpoint accessed: /compile/wasm/inuse")
     return {"in_use": COMPILE_LOCK.locked()}
+
+
+def zip_example_to_file(example: str, dst_zip_file: Path) -> None:
+    examples_dir = Path(f"/js/fastled/examples/{example}")
+    if not examples_dir.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Example {example} not found at {examples_dir}"
+        )
+
+    try:
+        print(f"Creating zip file at: {dst_zip_file}")
+        with zipfile.ZipFile(str(dst_zip_file), "w", zipfile.ZIP_DEFLATED) as zip_out:
+            for file_path in examples_dir.rglob("*"):
+                if file_path.is_file():
+                    if "fastled_js" in file_path.parts:
+                        continue
+                    arc_path = file_path.relative_to(Path("/js/fastled/examples"))
+                    zip_out.write(file_path, arc_path)
+        print(f"Zip file created at: {dst_zip_file}")
+    except Exception as e:
+        warnings.warn(f"Error: {e}")
+        raise
+
+
+def make_random_path_string(digits: int) -> str:
+    """Generate a random number."""
+    import random
+    import string
+
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=digits))
+
+
+@app.get("/project/init")
+def project_init(background_tasks: BackgroundTasks) -> FileResponse:
+    """Archive /js/fastled/examples/wasm into a zip file and return it."""
+    print("Endpoint accessed: /project/init")
+    # tmp_zip_file = NamedTemporaryFile(delete=False)
+    # tmp_zip_path = Path(tmp_zip_file.name)
+
+    tmp_zip_path = _TEMP_DIR / f"wasm-{make_random_path_string(16)}.zip"
+    zip_example_to_file("wasm", tmp_zip_path)
+
+    # assert tmp_zip_path.exists()
+    if not tmp_zip_path.exists():
+        warnings.warn("Failed to create zip file for wasm example.")
+        raise HTTPException(
+            status_code=500, detail="Failed to create zip file for wasm example."
+        )
+
+    def cleanup() -> None:
+        try:
+            os.unlink(tmp_zip_path)
+        except Exception as e:
+            warnings.warn(f"Error cleaning up: {e}")
+
+    background_tasks.add_task(cleanup)
+    return FileResponse(
+        path=tmp_zip_path,
+        media_type="application/zip",
+        filename="fastled_example.zip",
+        background=background_tasks,
+    )
+
+
+@app.post("/project/init")
+def project_init_example(
+    background_tasks: BackgroundTasks, example: str = Body(...)
+) -> FileResponse:
+    """Archive /js/fastled/examples/{example} into a zip file and return it."""
+    print(f"Endpoint accessed: /project/init/example with example: {example}")
+    if ".." in example:
+        raise HTTPException(status_code=400, detail="Invalid example name.")
+    name = Path("example").name
+    tmp_file_path = _TEMP_DIR / f"{name}-{make_random_path_string(16)}.zip"
+    zip_example_to_file(example, Path(tmp_file_path))
+
+    if not tmp_file_path.exists():
+        warnings.warn(f"Failed to create zip file for {example} example.")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create zip file for {example} example."
+        )
+
+    def cleanup() -> None:
+        try:
+            os.unlink(tmp_file_path)
+        except Exception as e:
+            warnings.warn(f"Error cleaning up: {e}")
+            raise
+
+    background_tasks.add_task(cleanup)
+    return FileResponse(
+        path=tmp_file_path,
+        media_type="application/zip",
+        filename="fastled_example.zip",
+        background=background_tasks,
+    )
+
+
+@app.get("/info")
+def info_examples() -> dict:
+    """Get a list of examples."""
+    print("Endpoint accessed: /info")
+    uptime = time.time() - START_TIME
+    uptime_fmtd = time.strftime("%H:%M:%S", time.gmtime(uptime))
+    try:
+        build_timestamp = (
+            Path("/image_timestamp.txt").read_text(encoding="utf-8").strip()
+        )
+    except Exception as e:
+        import warnings
+
+        warnings.warn(f"Error reading build timestamp: {e}")
+        build_timestamp = "unknown"
+    out = {
+        "examples": _EXAMPLES,
+        "compile_count": COMPILE_COUNT,
+        "compile_failures": COMPILE_FAILURES,
+        "compile_successes": COMPILE_SUCCESSES,
+        "uptime": uptime_fmtd,
+        "build_timestamp": build_timestamp,
+    }
+    return out
 
 
 # THIS MUST NOT BE ASYNC!!!!
@@ -448,6 +642,7 @@ def compile_wasm(
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> FileResponse:
     """Upload a file into a temporary directory."""
+    print(f"Endpoint accessed: /compile/wasm with file: {file.filename}")
     if build is not None:
         build = build.lower()
 

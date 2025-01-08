@@ -10,7 +10,7 @@ import time
 import warnings
 from pathlib import Path
 
-from ci.boards import Board, get_board
+from ci.boards import ESP32_S3_DEVKITC_1, ESP32DEV, Board, get_board
 from ci.concurrent_run import ConcurrentRunArgs, concurrent_run
 from ci.locked_print import locked_print
 
@@ -37,11 +37,11 @@ DEFAULT_BOARDS_NAMES = [
     "uno",  # Build is faster if this is first, because it's used for global init.
     "esp32dev",
     "esp01",  # ESP8266
-    "esp32-c3-devkitm-1",
+    "esp32c3",
     "attiny85",
     "ATtiny1616",
-    "esp32-c6-devkitc-1",
-    "esp32-s3-devkitc-1",
+    "esp32c6",
+    "esp32s3",
     "yun",
     "digix",
     "teensy30",
@@ -56,6 +56,7 @@ DEFAULT_BOARDS_NAMES = [
     "esp32dev_idf44",
     "bluepill",
     "esp32rmt_51",
+    "giga_r1",
 ]
 
 OTHER_BOARDS_NAMES = [
@@ -69,28 +70,44 @@ DEFAULT_EXAMPLES = [
     "Apa102HD",
     "Apa102HDOverride",
     "Blink",
+    "Blur",
+    "Chromancer",
     "ColorPalette",
     "ColorTemperature",
     "Cylon",
     "DemoReel100",
-    "Fire2012",
     "FirstLight",
+    "Fire2012",
     "Multiple/MultipleStripsInOneArray",
     "Multiple/ArrayOfLedArrays",
     "Noise",
     "NoisePlayground",
     "NoisePlusPalette",
+    "LuminescentGrand",
     "Pacifica",
     "Pride2015",
     "RGBCalibrate",
     "RGBSetDemo",
     "RGBW",
+    "Overclock",
     "RGBWEmulated",
     "TwinkleFox",
     "XYMatrix",
-    "Video/Gfx2Video",
-    "SdCard",
+    "FxGfx2Video",
+    "FxSdCard",
+    "FxCylon",
+    "FxDemoReel100",
+    "FxTwinkleFox",
+    "FxFire2012",
+    "FxNoisePlusPalette",
+    "FxPacifica",
+    "FxEngine",
 ]
+
+EXTRA_EXAMPLES: dict[Board, list[str]] = {
+    ESP32DEV: ["EspI2SDemo"],
+    ESP32_S3_DEVKITC_1: ["EspI2SDemo"],
+}
 
 
 def parse_args():
@@ -109,6 +126,9 @@ def parse_args():
     )
     parser.add_argument(
         "--examples", type=str, help="Comma-separated list of examples to compile"
+    )
+    parser.add_argument(
+        "--exclude-examples", type=str, help="Examples that should be excluded"
     )
     parser.add_argument(
         "--skip-init", action="store_true", help="Skip the initialization step"
@@ -223,8 +243,23 @@ def create_concurrent_run_args(args: argparse.Namespace) -> ConcurrentRunArgs:
     projects: list[Board] = []
     for board in boards:
         projects.append(get_board(board, no_project_options=args.no_project_options))
+    extra_examples: dict[Board, list[Path]] = {}
+    if args.examples is None:
+        for b, _examples in EXTRA_EXAMPLES.items():
+            resolved_examples = [resolve_example_path(example) for example in _examples]
+            extra_examples[b] = resolved_examples
     examples = args.examples.split(",") if args.examples else DEFAULT_EXAMPLES
     examples_paths = [resolve_example_path(example) for example in examples]
+    # now process example exclusions.
+    if args.exclude_examples:
+        exclude_examples = args.exclude_examples.split(",")
+        examples_paths = [
+            example
+            for example in examples_paths
+            if example.name not in exclude_examples
+        ]
+        for exclude in exclude_examples:
+            examples.remove(exclude)
     defines: list[str] = []
     if args.defines:
         defines.extend(args.defines.split(","))
@@ -234,6 +269,7 @@ def create_concurrent_run_args(args: argparse.Namespace) -> ConcurrentRunArgs:
     build_dir = args.build_dir
     extra_scripts = "pre:lib/ci/ci-flags.py"
     verbose = args.verbose
+
     out: ConcurrentRunArgs = ConcurrentRunArgs(
         projects=projects,
         examples=examples_paths,
@@ -247,6 +283,7 @@ def create_concurrent_run_args(args: argparse.Namespace) -> ConcurrentRunArgs:
         board_dir=(HERE / "boards").absolute().as_posix(),
         build_flags=BUILD_FLAGS,
         verbose=verbose,
+        extra_examples=extra_examples,
     )
     return out
 
