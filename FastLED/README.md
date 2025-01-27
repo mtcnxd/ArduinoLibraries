@@ -24,6 +24,8 @@ FastLED is a robust and massively parallel-led driver for Arduino, Esp32, Raspbe
  </picture>
 </a>
 
+*Hey everyone, Zach here. If you use or like this library then give us a star. I'm trying to make FastLED the #2 most popular library for Arduino. It's just one click, and you'll benefit from continued updates to FastLED.*
+
 ## About
 
 This is a driver library for easily & efficiently controlling a wide variety of LED chipsets, like the ones
@@ -270,6 +272,10 @@ If you are willing to make a custom board with shift registers, then the ESp32S3
 
 # New Feature Announcements
 
+## New in 3.9.12: WS2816 "HD" LED support
+
+![image](https://github.com/user-attachments/assets/258ec44c-af82-44b7-ad7b-fac08daa9bcb)
+
 ## New in 3.9.10: Super Stable WS2812 SPI driver for ESP32
 
 ![image (2)](https://github.com/user-attachments/assets/b3c5801c-66df-40af-a6b8-bbd1520fbb36)
@@ -431,7 +437,7 @@ While Daniel is no longer with us, his legacy continues through the FastLED libr
 
 ## About the Current Contributor
 
-Zach Vorhies, the current main contributor to FastLED, briefly worked with Dan in 2011 in San Francisco and was an avid user of the FastLED library for over 13 years. After Daniel Garcia’s untimely passing, Zach stepped up to ensure FastLED’s continued growth and development.
+Zach Vorhies, the current main contributor to FastLED, briefly worked with Dan in 2014 in San Francisco and was an avid user of the FastLED library for over 13 years. After Daniel Garcia’s untimely passing, Zach stepped up to ensure FastLED’s continued growth and development.
 
 Zach has this to say about FastLED:
 

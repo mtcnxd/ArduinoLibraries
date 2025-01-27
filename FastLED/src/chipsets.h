@@ -110,6 +110,23 @@ class RGBWEmulatedController
     : public CPixelLEDController<RGB_ORDER, CONTROLLER::LANES_VALUE,
                                  CONTROLLER::MASK_VALUE> {
   public:
+    // ControllerT is a helper class.  It subclasses the device controller class
+    // and has three methods to call the three protected methods we use.
+    // This is janky, but redeclaring public methods protected in a derived class
+    // is janky, too.
+
+    // N.B., byte order must be RGB.
+	typedef CONTROLLER ControllerBaseT;
+    class ControllerT : public CONTROLLER {
+        friend class RGBWEmulatedController<CONTROLLER, RGB_ORDER>;
+        void *callBeginShowLeds(int size) { return ControllerBaseT::beginShowLeds(size); }
+        void callShow(CRGB *data, int nLeds, uint8_t brightness) {
+            ControllerBaseT::show(data, nLeds, brightness);
+        }
+        void callEndShowLeds(void *data) { ControllerBaseT::endShowLeds(data); }
+    };
+
+
     static const int LANES = CONTROLLER::LANES_VALUE;
     static const uint32_t MASK = CONTROLLER::MASK_VALUE;
 
@@ -121,7 +138,15 @@ class RGBWEmulatedController
     };
     ~RGBWEmulatedController() { delete[] mRGBWPixels; }
 
-    virtual void showPixels(PixelController<RGB_ORDER, LANES, MASK> &pixels) {
+	virtual void *beginShowLeds(int size) override {
+		return mController.callBeginShowLeds(Rgbw::size_as_rgb(size));
+	}
+
+	virtual void endShowLeds(void *data) override {
+		return mController.callEndShowLeds(data);
+	}
+
+    virtual void showPixels(PixelController<RGB_ORDER, LANES, MASK> &pixels) override {
         // Ensure buffer is large enough
         ensureBuffer(pixels.size());
 		Rgbw rgbw = this->getRgbw();
@@ -147,7 +172,7 @@ class RGBWEmulatedController
 		mController.setDither(DISABLE_DITHER);
 
 		mController.setEnabled(true);
-		mController.showLeds(255);
+		mController.callShow(mRGBWPixels, Rgbw::size_as_rgb(pixels.size()), 255);
 		mController.setEnabled(false);
     }
 
@@ -168,8 +193,11 @@ class RGBWEmulatedController
             uint32_t new_size = Rgbw::size_as_rgb(num_leds);
             delete[] mRGBWPixels;
             mRGBWPixels = new CRGB[new_size];
-			// showPixels may never clear the last pixel.
-			mRGBWPixels[new_size - 1] = CRGB(0, 0, 0);
+			// showPixels may never clear the last two pixels.
+			for (uint32_t i = 0; i < new_size; i++) {
+				mRGBWPixels[i] = CRGB(0, 0, 0);
+			}
+
 			mController.setLeds(mRGBWPixels, new_size);
         }
     }
@@ -177,7 +205,7 @@ class RGBWEmulatedController
     CRGB *mRGBWPixels = nullptr;
     int32_t mNumRGBLeds = 0;
     int32_t mNumRGBWLeds = 0;
-    CONTROLLER mController; // Real controller.
+    ControllerT mController; // Real controller.
 };
 
 /// @defgroup ClockedChipsets Clocked Chipsets
@@ -555,6 +583,37 @@ class SK9822ControllerHD : public APA102Controller<
 > {
 };
 
+
+/// HD107 is just the APA102 with a default 40Mhz clock rate.
+template <
+	uint8_t DATA_PIN,
+	uint8_t CLOCK_PIN,
+	EOrder RGB_ORDER = RGB,
+	uint32_t SPI_SPEED = DATA_RATE_MHZ(40)
+>
+class HD107Controller : public APA102Controller<
+	DATA_PIN,
+	CLOCK_PIN,
+	RGB_ORDER,
+	SPI_SPEED,
+	kFiveBitGammaCorrectionMode_Null,
+	0x00000000,
+	0x00000000
+> {};
+
+/// HD107HD is just the APA102HD with a default 40Mhz clock rate.
+template <
+	uint8_t DATA_PIN,
+	uint8_t CLOCK_PIN,
+	EOrder RGB_ORDER = RGB,
+	uint32_t SPI_SPEED = DATA_RATE_MHZ(40)\
+>
+class HD107HDController : public APA102ControllerHD<
+	DATA_PIN,
+	CLOCK_PIN,
+	RGB_ORDER,
+	SPI_SPEED> {
+};
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1053,13 +1112,29 @@ class UCS1912Controller : public ClocklessController<DATA_PIN, C_NS(250), C_NS(1
 // them to a platform specific WS2812 controller.  The WS2812 controller
 // has to output twice as many 24 bit pixels.
 template <uint8_t DATA_PIN, EOrder RGB_ORDER = GRB>
-class WS2816Controller // : public ClocklessController<DATA_PIN, C_NS_WS2816(250), C_NS_WS2816(625), C_NS_WS2816(375)> {
+class WS2816Controller
     : public CPixelLEDController<RGB_ORDER, 
-								 WS2812Controller800Khz<DATA_PIN, RGB>::LANES_VALUE,
+                                 WS2812Controller800Khz<DATA_PIN, RGB>::LANES_VALUE,
                                  WS2812Controller800Khz<DATA_PIN, RGB>::MASK_VALUE> {
 
 public:
-    typedef WS2812Controller800Khz<DATA_PIN, RGB> ControllerT;
+
+	// ControllerT is a helper class.  It subclasses the device controller class
+	// and has three methods to call the three protected methods we use.
+	// This is janky, but redeclaring public methods protected in a derived class
+	// is janky, too.
+
+    // N.B., byte order must be RGB.
+	typedef WS2812Controller800Khz<DATA_PIN, RGB> ControllerBaseT;
+	class ControllerT : public ControllerBaseT {
+		friend class WS2816Controller<DATA_PIN, RGB_ORDER>;
+		void *callBeginShowLeds(int size) { return ControllerBaseT::beginShowLeds(size); }
+		void callShow(CRGB *data, int nLeds, uint8_t brightness) {
+			ControllerBaseT::show(data, nLeds, brightness);
+		}
+		void callEndShowLeds(void *data) { ControllerBaseT::endShowLeds(data); }
+	};
+
     static const int LANES = ControllerT::LANES_VALUE;
     static const uint32_t MASK = ControllerT::MASK_VALUE;
 
@@ -1069,7 +1144,20 @@ public:
         delete [] mData;
     }
 
-    virtual void showPixels(PixelController<RGB_ORDER, LANES, MASK> &pixels) {
+    virtual void *beginShowLeds(int size) override {
+        mController.setEnabled(true);
+		void *result = mController.callBeginShowLeds(2 * size);
+        mController.setEnabled(false);
+        return result;
+    }
+
+    virtual void endShowLeds(void *data) override {
+        mController.setEnabled(true);
+		mController.callEndShowLeds(data);
+        mController.setEnabled(false);
+    }
+
+    virtual void showPixels(PixelController<RGB_ORDER, LANES, MASK> &pixels) override {
         // Ensure buffer is large enough
         ensureBuffer(pixels.size());
 
@@ -1101,7 +1189,11 @@ public:
 
 		// output the data stream
         mController.setEnabled(true);
-        mController.showLeds(255);
+#ifdef BOUNCE_SUBCLASS
+		mController.callShow(mData, 2 * pixels.size(), 255);
+#else
+        mController.show(mData, 2 * pixels.size(), 255);
+#endif
         mController.setEnabled(false);
     }
 

@@ -1,5 +1,9 @@
 
-#ifdef ESP32
+#if defined(ESP32)
+
+#include "sdkconfig.h"
+
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
 
 #if !__has_include("esp_memory_utils.h")
 #warning "esp_memory_utils.h is not available, are you on esp-idf 4? The parallel clockless i2s driver will not be available"
@@ -11,8 +15,6 @@
 
 #define FASTLED_INTERNAL
 #include "FastLED.h"
-
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
 
 #include "third_party/yves/I2SClockLessLedDriveresp32s3/driver.h"
 
@@ -186,5 +188,6 @@ InternalI2SDriver* InternalI2SDriver::create() {
 #endif // CONFIG_IDF_TARGET_ESP32S3
 
 #endif // __has_include("esp_memory_utils.h")
+
 
 #endif // ESP32

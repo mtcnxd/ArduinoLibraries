@@ -16,13 +16,13 @@
 /// * 1 digit for the major version
 /// * 3 digits for the minor version
 /// * 3 digits for the patch version
-#define FASTLED_VERSION 3009012
+#define FASTLED_VERSION 3009013
 #ifndef FASTLED_INTERNAL
 #  ifdef  FASTLED_SHOW_VERSION
 #    ifdef FASTLED_HAS_PRAGMA_MESSAGE
-#      pragma message "FastLED version 3.009.012"
+#      pragma message "FastLED version 3.009.013"
 #    else
-#      warning FastLED version 3.009.012  (Not really a warning, just telling you here.)
+#      warning FastLED version 3.009.013  (Not really a warning, just telling you here.)
 #    endif
 #  endif
 #endif
@@ -104,6 +104,9 @@ enum ESPIChipsets {
 	DOTSTAR,  ///< APA102 LED chipset alias
 	DOTSTARHD, ///< APA102HD LED chipset alias
 	APA102HD, ///< APA102 LED chipset with 5-bit gamma correction
+	HD107,  /// Same as APA102, but in turbo 40-mhz mode.
+	HD107HD,  /// Same as APA102HD, but in turbo 40-mhz mode.
+
 };
 
 /// Smart Matrix Library controller type
@@ -438,6 +441,9 @@ public:
 	// Both DOTSTARHD and APA102HD use the same controller class
 	_FL_MAP_CLOCKED_CHIPSET(DOTSTARHD, APA102ControllerHD)
 	_FL_MAP_CLOCKED_CHIPSET(APA102HD, APA102ControllerHD)
+
+	_FL_MAP_CLOCKED_CHIPSET(HD107, APA102Controller)
+	_FL_MAP_CLOCKED_CHIPSET(HD107HD, APA102ControllerHD)
 
 	_FL_MAP_CLOCKED_CHIPSET(SK9822, SK9822Controller)
 	_FL_MAP_CLOCKED_CHIPSET(SK9822HD, SK9822ControllerHD)
