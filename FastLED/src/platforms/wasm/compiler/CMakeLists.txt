@@ -1,30 +1,39 @@
 cmake_minimum_required(VERSION 3.10)
 project(FastLED_WASM)
 
-# Set Emscripten as the compiler
-set(CMAKE_C_COMPILER emcc)
-set(CMAKE_CXX_COMPILER em++)
+# Enable verbose makefile output for all compiled sources
+set(CMAKE_VERBOSE_MAKEFILE ON)
 
-# Get build mode from environment, default to QUICK
+# --- Set Emscripten as the Compiler ---
+set(CMAKE_C_COMPILER "emcc")
+set(CMAKE_CXX_COMPILER "em++")
+set(CMAKE_AR "emar")
+set(CMAKE_RANLIB "emranlib")
+
+# Use ccache as a compiler launcher (requires CMake 3.4 or newer)
+set(CMAKE_C_COMPILER_LAUNCHER "ccache")
+set(CMAKE_CXX_COMPILER_LAUNCHER "ccache")
+
+# --- Build Mode and Optimization Level ---
 if(NOT DEFINED ENV{BUILD_MODE})
     set(BUILD_MODE "QUICK")
 else()
     set(BUILD_MODE $ENV{BUILD_MODE})
 endif()
 
-# Set optimization level based on build mode
 if(BUILD_MODE STREQUAL "QUICK")
-    set(OPT_LEVEL "-O1")
-elseif(BUILD_MODE STREQUAL "DEBUG")
     set(OPT_LEVEL "-O0")
+elseif(BUILD_MODE STREQUAL "DEBUG")
+    set(OPT_LEVEL "-Og")
 else() # RELEASE
     set(OPT_LEVEL "-Oz")
 endif()
 
-# Common compiler flags
+# --- Common Compiler and Linker Flags ---
 set(COMMON_COMPILE_FLAGS
     -DFASTLED_ENGINE_EVENTS_MAX_LISTENERS=50
     -DFASTLED_FORCE_NAMESPACE=1
+    -DFASTLED_NO_FORCE_INLINE
     -DFASTLED_USE_PROGMEM=0
     -DDISABLE_EXCEPTION_CATCHING=1
     -fno-exceptions
@@ -32,201 +41,99 @@ set(COMMON_COMPILE_FLAGS
     -DEMSCRIPTEN_HAS_UNBOUND_TYPE_NAMES=0
     -std=gnu++17
     -fpermissive
+    -fno-inline
     -Wno-constant-logical-operand
     -Wnon-c-typedef-for-linkage
     -Werror=bad-function-cast
     -Werror=cast-function-type
+    -sUSE_PTHREADS=0          # Disable threading support
     ${OPT_LEVEL}
 )
 
-# Linker flags
+# (Optional: PROFILE flags can be added here if needed)
+
 set(COMMON_LINK_FLAGS
     -sALLOW_MEMORY_GROWTH=0
     -sDISABLE_EXCEPTION_CATCHING=1
     -sDISABLE_EXCEPTION_THROWING=0
+    -sWASM_BIGINT
     --bind
     -DUSE_OFFSET_CONVERTER=0
     -sINITIAL_MEMORY=134217728
     -fuse-ld=lld
-    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','stringToUTF8','lengthBytesUTF8']
-    -sEXPORTED_FUNCTIONS=['_malloc','_free','_extern_setup','_extern_loop','_fastled_declare_files']
     --no-entry
     -sMODULARIZE=1
+)
+
+set(LIBRARY_LINK_FLAGS
+    ${COMMON_LINK_FLAGS}
+)
+
+set(SKETCH_LINK_FLAGS
+    ${COMMON_LINK_FLAGS}
+    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','stringToUTF8','lengthBytesUTF8']
+    -sEXPORTED_FUNCTIONS=['_malloc','_free','_extern_setup','_extern_loop','_fastled_declare_files']
     -sEXPORT_NAME=fastled
     -o fastled.js
 )
 
-# Debug-specific flags
 if(BUILD_MODE STREQUAL "DEBUG")
     list(APPEND COMMON_COMPILE_FLAGS
         -g3
         -fsanitize=address
         -fsanitize=undefined
     )
-    list(APPEND COMMON_LINK_FLAGS
+    set(DEBUG_LINK_FLAGS
         -gsource-map
         --emit-symbol-map
         -sSTACK_OVERFLOW_CHECK=2
         -ASSERTIONS=1
     )
+    list(APPEND LIBRARY_LINK_FLAGS ${DEBUG_LINK_FLAGS})
+    list(APPEND SKETCH_LINK_FLAGS ${DEBUG_LINK_FLAGS})
 endif()
 
-set(UNIT_TEST_COMPILE_FLAGS
-    -O0
-)
+# --- FASTLED LIBRARY SETUP ---
+set(LIBFASTLED_PATH /precompiled/libfastled.a)
 
-# Set FastLED source directory
-set(FASTLED_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fastled/src)
-
-message(STATUS "FastLED source directory: ${FASTLED_SOURCE_DIR}")
-
-# Include directories
-include_directories(${FASTLED_SOURCE_DIR})
-
-# Find all FastLED source files
-file(GLOB_RECURSE FASTLED_SOURCES 
-    "${FASTLED_SOURCE_DIR}/*.cpp"
-)
-
-message(STATUS "FastLED sources: ${FASTLED_SOURCES}")
-
-# Create the WASM library
-add_executable(fastled ${FASTLED_SOURCES})
-
-# Set properties and flags
-target_compile_options(fastled PRIVATE ${COMMON_COMPILE_FLAGS})
-target_link_options(fastled PRIVATE ${COMMON_LINK_FLAGS})
-set_target_properties(fastled PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-)
-
-# Debug output for source categorization
-#message(STATUS "FX Sources: ${FX_SOURCES}")
-#message(STATUS "Platforms Sources: ${PLATFORMS_SOURCES}")
-#message(STATUS "Lib8tion Sources: ${LIB8TION_SOURCES}")
-#message(STATUS "FL Sources: ${FL_SOURCES}")
-#message(STATUS "Other Sources: ${OTHER_SOURCES}")
-
-# message(STATUS "FastLED_core: ${FastLED_core}")
-
-# Create core library with essential components
-file(GLOB CORE_SOURCES "${FASTLED_SOURCE_DIR}/*.cpp")
-
-message(STATUS "Core Sources: ${CORE_SOURCES}")
-# ${CMAKE_CURRENT_SOURCE_DIR}
-message(STATUS "Current Source Dir: ${CMAKE_CURRENT_SOURCE_DIR}")
-
-add_library(FastLED_core OBJECT ${CORE_SOURCES})
-set_target_properties(FastLED_core PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-)
-target_compile_options(FastLED_core PRIVATE ${COMMON_COMPILE_FLAGS})
-target_compile_definitions(FastLED_core PRIVATE ${COMMON_COMPILE_DEFINITIONS})
-
-# Create component libraries as OBJECT libraries
-if(FX_SOURCES)
-    add_library(FastLED_fx OBJECT ${FX_SOURCES})
-    set_target_properties(FastLED_fx PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-    )
-    target_compile_options(FastLED_fx PRIVATE ${COMMON_COMPILE_FLAGS})
-    target_compile_definitions(FastLED_fx PRIVATE ${COMMON_COMPILE_DEFINITIONS})
-endif()
-
-if(PLATFORMS_SOURCES)
-    add_library(FastLED_platforms OBJECT ${PLATFORMS_SOURCES})
-    set_target_properties(FastLED_platforms PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-    )
-    target_compile_options(FastLED_platforms PRIVATE ${COMMON_COMPILE_FLAGS})
-    target_compile_definitions(FastLED_platforms PRIVATE ${COMMON_COMPILE_DEFINITIONS})
-endif()
-
-if(LIB8TION_SOURCES)
-    add_library(FastLED_lib8tion OBJECT ${LIB8TION_SOURCES})
-    set_target_properties(FastLED_lib8tion PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-    )
-    target_compile_options(FastLED_lib8tion PRIVATE ${COMMON_COMPILE_FLAGS})
-    target_compile_definitions(FastLED_lib8tion PRIVATE ${COMMON_COMPILE_DEFINITIONS})
-endif()
-
-if(FL_SOURCES)
-    add_library(FastLED_fl OBJECT ${FL_SOURCES})
-    set_target_properties(FastLED_fl PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-    )
-    target_compile_options(FastLED_fl PRIVATE ${COMMON_COMPILE_FLAGS})
-    target_compile_definitions(FastLED_fl PRIVATE ${COMMON_COMPILE_DEFINITIONS})
-endif()
-
-if(SENSORS_SOURCES)
-    add_library(FastLED_sensors OBJECT ${SENSORS_SOURCES})
-    set_target_properties(FastLED_sensors PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        POSITION_INDEPENDENT_CODE ON
-    )
-    target_compile_options(FastLED_sensors PRIVATE ${COMMON_COMPILE_FLAGS})
-    target_compile_definitions(FastLED_sensors PRIVATE ${COMMON_COMPILE_DEFINITIONS})
-endif()
-
-# Create the main FastLED static library that includes all components
-add_library(FastLED STATIC 
-    $<TARGET_OBJECTS:FastLED_core>
-    $<$<TARGET_EXISTS:FastLED_fx>:$<TARGET_OBJECTS:FastLED_fx>>
-    $<$<TARGET_EXISTS:FastLED_platforms>:$<TARGET_OBJECTS:FastLED_platforms>>
-    $<$<TARGET_EXISTS:FastLED_lib8tion>:$<TARGET_OBJECTS:FastLED_lib8tion>>
-    $<$<TARGET_EXISTS:FastLED_fl>:$<TARGET_OBJECTS:FastLED_fl>>
-    $<$<TARGET_EXISTS:FastLED_sensors>:$<TARGET_OBJECTS:FastLED_sensors>>
-)
-
-# Add whole archive linking for FastLED
-target_link_options(fastled PRIVATE "-Wl,--whole-archive" $<TARGET_FILE:FastLED> "-Wl,--no-whole-archive")
-
-# Set properties for the main library
-set_target_properties(FastLED PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    POSITION_INDEPENDENT_CODE ON
-)
-target_compile_options(FastLED PRIVATE ${UNIT_TEST_COMPILE_FLAGS})
-target_compile_definitions(FastLED PRIVATE ${COMMON_COMPILE_DEFINITIONS})
-if(NOT APPLE)
-    target_link_options(FastLED PRIVATE -static-libgcc -static-libstdc++)
-endif()
-
-# Try to find libunwind, but make it optional
-find_package(LibUnwind QUIET)
-
-# Define a variable to check if we should use libunwind
-set(USE_LIBUNWIND ${LibUnwind_FOUND})
-
-if(USE_LIBUNWIND)
-    message(STATUS "LibUnwind found. Using it for better stack traces.")
+if(EXISTS ${LIBFASTLED_PATH})
+    message(STATUS "Found prebuilt libfastled.a at ${LIBFASTLED_PATH}, skipping build of FastLED library.")
+    add_library(fastled STATIC IMPORTED)
+    set_target_properties(fastled PROPERTIES IMPORTED_LOCATION ${LIBFASTLED_PATH})
 else()
-    message(STATUS "LibUnwind not found. Falling back to basic stack traces.")
+    message(FATAL_ERROR "Did not find precompiled libfastled.a at ${LIBFASTLED_PATH}. Please build the library first.")
 endif()
 
-# Remove platform-specific files that might cause issues
-list(FILTER FASTLED_SOURCES EXCLUDE REGEX ".*esp.*")
-list(FILTER FASTLED_SOURCES EXCLUDE REGEX ".*arm.*")
-list(FILTER FASTLED_SOURCES EXCLUDE REGEX ".*avr.*")
+if(TARGET fastled)
+    set_target_properties(fastled PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        POSITION_INDEPENDENT_CODE ON
+    )
+endif()
 
+# --- LIBRARY TARGET: sketch_lib ---
+file(GLOB_RECURSE ALL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+message(STATUS "All sources: ${ALL_SOURCES}")
 
+add_library(sketch_lib STATIC ${ALL_SOURCES})
 
+target_compile_options(sketch_lib PRIVATE ${COMMON_COMPILE_FLAGS})
+target_compile_definitions(sketch_lib PRIVATE SKETCH_COMPILE)
+target_include_directories(sketch_lib PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    "/precompiled/include"
+)
+set_target_properties(sketch_lib PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+)
 
-
-# Add verbose output for tests
-set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
+# ── FINAL LINKING STEP: Produce fastled.js ──
+# This custom target invokes em++ to link the static library (sketch_lib)
+# with the precompiled libfastled.a into the final binary fastled.js.
+add_custom_target(final_wasm ALL
+    COMMAND em++ ${SKETCH_LINK_FLAGS} -Wl,--whole-archive $<TARGET_FILE:sketch_lib> -Wl,--no-whole-archive /precompiled/libfastled.a
+    DEPENDS sketch_lib fastled
+    COMMENT "Linking final wasm binary to fastled.js"
+)
